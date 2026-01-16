@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Icon Generator</title>
+</head>
+<body>
+  <h1>Step Recorder Icon Generator</h1>
+  <p>Right-click each icon below and "Save image as..." to save it with the correct filename.</p>
+  
+  <div id="icons"></div>
+  
+  <script>
+    const sizes = [16, 48, 128];
+    const iconsDiv = document.getElementById('icons');
+    
+    sizes.forEach(size => {
+      const canvas = document.createElement('canvas');
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      
+      // Draw background
+      ctx.fillStyle = '#2196F3';
+      ctx.fillRect(0, 0, size, size);
+      
+      // Draw a simple record icon (circle)
+      ctx.fillStyle = '#FFFFFF';
+      ctx.beginPath();
+      ctx.arc(size / 2, size / 2, size * 0.3, 0, 2 * Math.PI);
+      ctx.fill();
+      
+      // Draw inner circle for record button
+      ctx.fillStyle = '#F44336';
+      ctx.beginPath();
+      ctx.arc(size / 2, size / 2, size * 0.15, 0, 2 * Math.PI);
+      ctx.fill();
+      
+      const div = document.createElement('div');
+      div.style.margin = '20px';
+      div.innerHTML = `<p><strong>icon${size}.png</strong> (${size}x${size})</p>`;
+      div.appendChild(canvas);
+      iconsDiv.appendChild(div);
+    });
+  </script>
+</body>
+</html>

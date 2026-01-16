@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      padding: 16px;
+      background: #f5f5f5;
+    }
+
+    .container {
+      max-width: 100%;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      overflow: hidden;
+    }
+
+    .controls {
+      padding: 16px;
+      background: #f9f9f9;
+      border-bottom: 1px solid #e0e0e0;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    button {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+
+    button:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    button:active {
+      transform: translateY(0);
+    }
+
+    .btn-start {
+      background: #4CAF50;
+      color: white;
+    }
+
+    .btn-start:hover {
+      background: #45a049;
+    }
+
+    .btn-pause {
+      background: #ff9800;
+      color: white;
+    }
+
+    .btn-pause:hover {
+      background: #e68900;
+    }
+
+    .btn-stop {
+      background: #f44336;
+      color: white;
+    }
+
+    .btn-stop:hover {
+      background: #da190b;
+    }
+
+    .btn-clear {
+      background: #9e9e9e;
+      color: white;
+    }
+
+    .btn-clear:hover {
+      background: #757575;
+    }
+
+    .status {
+      margin-left: auto;
+      padding: 8px 12px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 500;
+      text-transform: uppercase;
+    }
+
+    .status.idle {
+      background: #e0e0e0;
+      color: #666;
+    }
+
+    .status.recording {
+      background: #ffebee;
+      color: #c62828;
+      animation: pulse 2s infinite;
+    }
+
+    .status.paused {
+      background: #fff3e0;
+      color: #e65100;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.7; }
+    }
+
+    .steps-container {
+      max-height: 600px;
+      overflow-y: auto;
+    }
+
+    .step-item {
+      padding: 12px 16px;
+      padding-right: 36px;
+      border-bottom: 1px solid #e0e0e0;
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      transition: background 0.2s;
+      position: relative;
+    }
+
+    .step-item:hover {
+      background: #f9f9f9;
+    }
+
+    .step-item:last-child {
+      border-bottom: none;
+    }
+
+    .step-number {
+      background: #2196F3;
+      color: white;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: bold;
+      flex-shrink: 0;
+    }
+
+    .step-content {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .step-type {
+      font-weight: 600;
+      color: #333;
+      margin-bottom: 4px;
+      font-size: 14px;
+    }
+
+    .step-details {
+      font-size: 12px;
+      color: #666;
+      word-break: break-word;
+    }
+
+    .step-timestamp {
+      font-size: 11px;
+      color: #999;
+      margin-top: 4px;
+    }
+
+    .step-delete {
+      position: absolute;
+      right: 8px;
+      top: 8px;
+      width: 22px;
+      height: 22px;
+      border: none;
+      background: #eee;
+      color: #888;
+      cursor: pointer;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      transition: all 0.2s ease;
+      font-size: 16px;
+      font-weight: 400;
+      line-height: 1;
+      padding: 0;
+    }
+
+    .step-item:hover .step-delete {
+      opacity: 1;
+    }
+
+    .step-delete:hover {
+      background: #f44336;
+      color: white;
+      transform: scale(1.1);
+    }
+
+    .step-delete:active {
+      transform: scale(0.95);
+    }
+
+    .empty-state {
+      padding: 48px 16px;
+      text-align: center;
+      color: #999;
+    }
+
+    .empty-state-icon {
+      font-size: 48px;
+      margin-bottom: 16px;
+      opacity: 0.5;
+    }
+
+    .export-controls {
+      padding: 12px 16px;
+      background: #f9f9f9;
+      border-top: 1px solid #e0e0e0;
+      display: flex;
+      gap: 8px;
+    }
+
+    .btn-export {
+      background: #2196F3;
+      color: white;
+    }
+
+    .btn-export:hover {
+      background: #1976D2;
+    }
+
+    .btn-generate {
+      background: #9C27B0;
+      color: white;
+    }
+
+    .btn-generate:hover {
+      background: #7B1FA2;
+    }
+
+    .btn-generate:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+
+    .settings-section {
+      padding: 16px;
+      background: #f9f9f9;
+      border-bottom: 1px solid #e0e0e0;
+    }
+
+    .settings-section h3 {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      color: #333;
+    }
+
+    .settings-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .settings-row:last-child {
+      margin-bottom: 0;
+    }
+
+    .settings-row label {
+      font-size: 12px;
+      color: #666;
+      min-width: 100px;
+    }
+
+    .settings-row input {
+      flex: 1;
+      padding: 6px 12px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 12px;
+      font-family: 'Monaco', 'Menlo', monospace;
+    }
+
+    .settings-row input:focus {
+      outline: none;
+      border-color: #2196F3;
+    }
+
+    .btn-save {
+      background: #4CAF50;
+      color: white;
+      padding: 6px 12px;
+      font-size: 12px;
+    }
+
+    .btn-save:hover {
+      background: #45a049;
+    }
+
+    .test-cases-section {
+      padding: 16px;
+      background: #fff;
+      border-top: 1px solid #e0e0e0;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+
+    .test-cases-section h3 {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      color: #333;
+    }
+
+    .test-case-content {
+      background: #f5f5f5;
+      padding: 12px;
+      border-radius: 4px;
+      font-family: 'Monaco', 'Menlo', monospace;
+      font-size: 12px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      color: #333;
+    }
+
+    .test-case-textarea {
+      width: 100%;
+      min-height: 150px;
+      padding: 12px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-family: 'Monaco', 'Menlo', monospace;
+      font-size: 12px;
+      line-height: 1.6;
+      color: #333;
+      background: #fafafa;
+      resize: vertical;
+      box-sizing: border-box;
+    }
+
+    .test-case-textarea:focus {
+      outline: none;
+      border-color: #2196F3;
+      background: #fff;
+    }
+
+    .loading {
+      text-align: center;
+      padding: 20px;
+      color: #666;
+    }
+
+    .error {
+      background: #ffebee;
+      color: #c62828;
+      padding: 12px;
+      border-radius: 4px;
+      font-size: 12px;
+      margin-top: 8px;
+    }
+
+    .api-key-status {
+      font-size: 11px;
+      color: #4CAF50;
+      margin-left: 8px;
+    }
+
+    .api-key-status.missing {
+      color: #f44336;
+    }
+
+    /* Assertion styles */
+    .btn-assert {
+      background: #9C27B0;
+      color: white;
+    }
+
+    .btn-assert:hover {
+      background: #7B1FA2;
+    }
+
+    .btn-assert.active {
+      background: #6A1B9A;
+      box-shadow: inset 0 2px 4px rgba(0,0,0,0.2);
+    }
+
+    .btn-error {
+      background: #f44336;
+      color: white;
+    }
+
+    .btn-error:hover {
+      background: #d32f2f;
+    }
+
+    .step-number.assert {
+      background: #9C27B0;
+    }
+
+    .step-type.assert {
+      color: #9C27B0;
+    }
+
+    /* Assertion modal */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0,0,0,0.5);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .modal-overlay.show {
+      display: flex;
+    }
+
+    .modal {
+      background: white;
+      border-radius: 8px;
+      padding: 20px;
+      min-width: 280px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    }
+
+    .modal h3 {
+      margin-bottom: 16px;
+      font-size: 16px;
+    }
+
+    .modal-options {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .modal-option {
+      padding: 12px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .modal-option:hover {
+      border-color: #9C27B0;
+      background: #f3e5f5;
+    }
+
+    .modal-option-title {
+      font-weight: 600;
+      font-size: 14px;
+    }
+
+    .modal-option-desc {
+      font-size: 12px;
+      color: #666;
+      margin-top: 4px;
+    }
+
+    .modal-cancel {
+      margin-top: 12px;
+      width: 100%;
+      background: #eee;
+      color: #333;
+    }
+
+    /* Context menu */
+    .context-menu {
+      display: none;
+      position: fixed;
+      background: white;
+      border-radius: 4px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+      z-index: 1001;
+      min-width: 180px;
+      padding: 4px 0;
+    }
+
+    .context-menu.show {
+      display: block;
+    }
+
+    .context-menu-item {
+      padding: 8px 16px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+
+    .context-menu-item:hover {
+      background: #f0f0f0;
+    }
+
+    .assertion-mode-banner {
+      display: none;
+      padding: 8px 16px;
+      background: #9C27B0;
+      color: white;
+      text-align: center;
+      font-size: 13px;
+    }
+
+    .assertion-mode-banner.show {
+      display: block;
+    }
+
+    .section-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+
+    .section-header h3 {
+      margin: 0;
+    }
+
+    .btn-copy {
+      background: #607D8B;
+      color: white;
+      padding: 4px 12px;
+      font-size: 12px;
+    }
+
+    .btn-copy:hover {
+      background: #455A64;
+    }
+
+    .btn-copy.copied {
+      background: #4CAF50;
+    }
+
+    /* Error capture toggle */
+    .options-row {
+      display: flex;
+      gap: 16px;
+      padding: 8px 16px;
+      background: #f9f9f9;
+      border-bottom: 1px solid #e0e0e0;
+      font-size: 12px;
+    }
+
+    .option-toggle {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+    }
+
+    .option-toggle input {
+      cursor: pointer;
+    }
+
+    /* Error step styles */
+    .step-number.error {
+      background: #f44336;
+      color: white;
+    }
+
+    .step-type.error {
+      color: #f44336;
+    }
+
+    /* Error list in modal */
+    .error-list-section {
+      margin-bottom: 16px;
+    }
+
+    .error-list-header {
+      font-size: 12px;
+      font-weight: 600;
+      color: #666;
+      margin-bottom: 8px;
+    }
+
+    .error-list-container {
+      max-height: 200px;
+      overflow-y: auto;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      background: #fafafa;
+    }
+
+    .error-list-empty {
+      padding: 16px;
+      text-align: center;
+      color: #999;
+      font-size: 12px;
+    }
+
+    .error-list-item {
+      padding: 8px 12px;
+      border-bottom: 1px solid #eee;
+      cursor: pointer;
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      transition: background 0.15s;
+    }
+
+    .error-list-item:last-child {
+      border-bottom: none;
+    }
+
+    .error-list-item:hover {
+      background: #fff3e0;
+    }
+
+    .error-list-type {
+      flex-shrink: 0;
+    }
+
+    .error-list-message {
+      flex: 1;
+      font-size: 12px;
+      color: #333;
+      overflow: hidden;
+      min-width: 0;
+    }
+
+    .error-list-url {
+      font-size: 10px;
+      color: #666;
+      font-family: monospace;
+      word-break: break-all;
+    }
+
+    .error-list-time {
+      font-size: 10px;
+      color: #999;
+      flex-shrink: 0;
+    }
+
+    .error-manual-section {
+      border-top: 1px solid #eee;
+      padding-top: 12px;
+    }
+
+    .domain-input {
+      flex: 1;
+      padding: 4px 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 12px;
+      min-width: 150px;
+    }
+
+    .domain-input:focus {
+      outline: none;
+      border-color: #2196F3;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="settings-section">
+      <h3>⚙️ Settings</h3>
+      <div class="settings-row">
+        <label>OpenAI API Key:</label>
+        <input type="password" id="apiKeyInput" placeholder="sk-...">
+        <button id="btnSaveKey" class="btn-save">Save</button>
+        <span id="apiKeyStatus" class="api-key-status missing">Not set</span>
+      </div>
+    </div>
+
+    <div class="controls">
+      <button id="btnStart" class="btn-start">▶ Start</button>
+      <button id="btnPause" class="btn-pause">⏸ Pause</button>
+      <button id="btnStop" class="btn-stop">⏹ Stop</button>
+      <button id="btnAssert" class="btn-assert">+ Assert</button>
+      <button id="btnAddError" class="btn-error">+ Error</button>
+      <button id="btnClear" class="btn-clear">Clear</button>
+      <div id="status" class="status idle">Idle</div>
+    </div>
+
+    <div id="assertionBanner" class="assertion-mode-banner">
+      Click an element on the page to add assertion. Press Esc to cancel.
+    </div>
+
+    <div class="options-row">
+      <label class="option-toggle">
+        <input type="checkbox" id="recordFocusEvents">
+        Record focus
+      </label>
+      <label class="option-toggle">
+        <input type="checkbox" id="captureConsoleErrors">
+        Console errors
+      </label>
+      <label class="option-toggle">
+        <input type="checkbox" id="captureNetworkErrors">
+        Network errors
+      </label>
+      <label class="option-toggle">
+        <input type="checkbox" id="captureAllLogs">
+        ALL logs
+      </label>
+    </div>
+    <div class="options-row">
+      <label class="option-toggle">
+        <input type="checkbox" id="filterByDomain" checked>
+        Only capture from:
+      </label>
+      <input type="text" id="domainFilter" placeholder="http://localhost:3000" class="domain-input">
+    </div>
+
+    <div id="stepsContainer" class="steps-container">
+      <div class="empty-state">
+        <div class="empty-state-icon">📝</div>
+        <div>No steps recorded yet. Click "Start" to begin recording.</div>
+      </div>
+    </div>
+
+    <div class="export-controls">
+      <button id="btnExport" class="btn-export">Export Steps</button>
+      <button id="btnGenerate" class="btn-generate">Generate Steps to Reproduce</button>
+    </div>
+
+    <div id="testCasesSection" class="test-cases-section" style="display: none;">
+      <div class="section-header">
+        <h3>📋 Steps to Reproduce</h3>
+        <button id="btnCopySteps" class="btn-copy">Copy</button>
+      </div>
+      <div id="testCasesContent"></div>
+    </div>
+  </div>
+
+  <!-- Assertion Type Modal -->
+  <div id="assertModal" class="modal-overlay">
+    <div class="modal">
+      <h3>Select Assertion Type</h3>
+      <div class="modal-options">
+        <div class="modal-option" data-type="exists">
+          <div class="modal-option-title">Element Exists</div>
+          <div class="modal-option-desc">Verify element is present on page</div>
+        </div>
+        <div class="modal-option" data-type="visible">
+          <div class="modal-option-title">Element Visible</div>
+          <div class="modal-option-desc">Verify element is visible (not hidden)</div>
+        </div>
+        <div class="modal-option" data-type="textContains">
+          <div class="modal-option-title">Text Contains</div>
+          <div class="modal-option-desc">Verify element contains specific text</div>
+        </div>
+      </div>
+      <button id="btnCancelAssert" class="modal-cancel">Cancel</button>
+    </div>
+  </div>
+
+  <!-- Error Modal -->
+  <div id="errorModal" class="modal-overlay">
+    <div class="modal" style="min-width: 360px;">
+      <h3>Add Error/Note</h3>
+
+      <!-- Recent errors from DevTools -->
+      <div class="error-list-section">
+        <div class="error-list-header">Recent Errors (click to add)</div>
+        <div id="errorListContainer" class="error-list-container">
+          <div class="error-list-empty">No errors captured yet. Errors will appear here as they occur.</div>
+        </div>
+      </div>
+
+      <!-- Manual note entry -->
+      <div class="error-manual-section">
+        <div class="error-list-header">Or add manually</div>
+        <select id="errorType" style="width: 100%; padding: 8px; margin-bottom: 8px; border: 1px solid #ddd; border-radius: 4px;">
+          <option value="console">Console Error</option>
+          <option value="network">Network Error</option>
+          <option value="note">Note</option>
+        </select>
+        <textarea id="errorMessage" placeholder="Enter error message or note..." style="width: 100%; height: 60px; padding: 8px; border: 1px solid #ddd; border-radius: 4px; resize: vertical; font-family: inherit;"></textarea>
+      </div>
+
+      <div style="display: flex; gap: 8px; margin-top: 12px;">
+        <button id="btnConfirmError" class="btn-error" style="flex: 1;">Add Manual</button>
+        <button id="btnCancelError" class="modal-cancel" style="flex: 1; margin-top: 0;">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Context Menu -->
+  <div id="contextMenu" class="context-menu">
+    <div class="context-menu-item" data-action="assert-after">Add Assertion After</div>
+    <div class="context-menu-item" data-action="error-after">Add Error/Note After</div>
+    <div class="context-menu-item" data-action="delete">Delete Step</div>
+  </div>
+
+  <script src="panel.js"></script>
+</body>
+</html>

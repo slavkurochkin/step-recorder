@@ -317,15 +317,53 @@
       padding: 16px;
       background: #fff;
       border-top: 1px solid #e0e0e0;
-      max-height: 400px;
-      overflow-y: auto;
     }
 
-    .test-cases-section h3 {
-      font-size: 14px;
+    .textareas-container {
+      display: flex;
+      gap: 16px;
+    }
+
+    .textarea-column {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .textarea-column h3 {
+      font-size: 13px;
       font-weight: 600;
-      margin-bottom: 12px;
       color: #333;
+      margin: 0;
+    }
+
+    .llm-header-controls {
+      display: flex;
+      gap: 4px;
+      align-items: center;
+    }
+
+    .llm-mode-select {
+      padding: 4px 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 11px;
+      background: white;
+      cursor: pointer;
+    }
+
+    .llm-mode-select:focus {
+      outline: none;
+      border-color: #9C27B0;
+    }
+
+    .llm-header-controls .btn-generate {
+      padding: 4px 10px;
+      font-size: 11px;
+    }
+
+    .llm-header-controls .btn-copy {
+      padding: 4px 10px;
+      font-size: 11px;
     }
 
     .test-case-content {
@@ -551,6 +589,29 @@
       background: #4CAF50;
     }
 
+    /* Editable step text */
+    .step-text-editable {
+      cursor: pointer;
+      padding: 2px 4px;
+      margin: -2px -4px;
+      border-radius: 3px;
+      transition: background 0.15s;
+    }
+
+    .step-text-editable:hover {
+      background: #e3f2fd;
+    }
+
+    .step-edit-input {
+      width: 100%;
+      padding: 4px 6px;
+      border: 1px solid #2196F3;
+      border-radius: 3px;
+      font-size: 12px;
+      font-family: inherit;
+      outline: none;
+    }
+
     /* Error capture toggle */
     .options-row {
       display: flex;
@@ -732,16 +793,37 @@
     </div>
 
     <div class="export-controls">
-      <button id="btnExport" class="btn-export">Export Steps</button>
-      <button id="btnGenerate" class="btn-generate">Generate Steps to Reproduce</button>
+      <button id="btnExport" class="btn-export">Export JSON</button>
     </div>
 
-    <div id="testCasesSection" class="test-cases-section" style="display: none;">
-      <div class="section-header">
-        <h3>📋 Steps to Reproduce</h3>
-        <button id="btnCopySteps" class="btn-copy">Copy</button>
+    <div id="testCasesSection" class="test-cases-section">
+      <div class="textareas-container">
+        <div class="textarea-column">
+          <div class="section-header">
+            <h3>📝 Raw Steps</h3>
+            <button id="btnCopyRaw" class="btn-copy">Copy</button>
+          </div>
+          <textarea class="test-case-textarea" id="rawStepsTextarea" placeholder="Recorded steps will appear here..."></textarea>
+        </div>
+        <div class="textarea-column">
+          <div class="section-header">
+            <h3>🤖 LLM</h3>
+            <div class="llm-header-controls">
+              <select id="llmMode" class="llm-mode-select">
+                <option value="steps">Steps to Reproduce</option>
+                <option value="testcases">Test Cases</option>
+                <option value="bugreport">Bug Report</option>
+                <option value="exploratory">Exploratory Testing</option>
+                <option value="riskbased">Risk-Based Testing</option>
+                <option value="playwright">Playwright</option>
+              </select>
+              <button id="btnGenerate" class="btn-generate">Generate</button>
+              <button id="btnCopyLLM" class="btn-copy">Copy</button>
+            </div>
+          </div>
+          <textarea class="test-case-textarea" id="llmStepsTextarea" placeholder="Select mode and click 'Generate'..."></textarea>
+        </div>
       </div>
-      <div id="testCasesContent"></div>
     </div>
   </div>
 

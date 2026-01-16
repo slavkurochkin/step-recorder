@@ -1,0 +1,54 @@
+# Dependencies
+node_modules/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Environment variables and secrets
+.env
+.env.local
+.env.*.local
+*.env
+
+# Build artifacts
+dist/
+build/
+*.bundle.js
+panel-langchain-bundle.js
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDE files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Chrome extension specific
+*.crx
+*.pem
+*.zip
+web-ext-artifacts/
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+CONTENT.md

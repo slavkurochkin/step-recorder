@@ -19,11 +19,14 @@ const apiKeyStatus = document.getElementById('apiKeyStatus');
 const status = document.getElementById('status');
 const stepsContainer = document.getElementById('stepsContainer');
 const testCasesSection = document.getElementById('testCasesSection');
-const testCasesContent = document.getElementById('testCasesContent');
+const rawStepsTextarea = document.getElementById('rawStepsTextarea');
+const llmStepsTextarea = document.getElementById('llmStepsTextarea');
 const assertModal = document.getElementById('assertModal');
 const assertionBanner = document.getElementById('assertionBanner');
 const contextMenu = document.getElementById('contextMenu');
-const btnCopySteps = document.getElementById('btnCopySteps');
+const btnCopyRaw = document.getElementById('btnCopyRaw');
+const btnCopyLLM = document.getElementById('btnCopyLLM');
+const llmModeSelect = document.getElementById('llmMode');
 const recordFocusEvents = document.getElementById('recordFocusEvents');
 const captureConsoleErrors = document.getElementById('captureConsoleErrors');
 const captureNetworkErrors = document.getElementById('captureNetworkErrors');
@@ -35,7 +38,6 @@ const errorModal = document.getElementById('errorModal');
 const errorTypeSelect = document.getElementById('errorType');
 const errorMessageInput = document.getElementById('errorMessage');
 
-let generatedStepsText = ''; // Store generated steps for copying
 let errorInsertAfterIndex = null; // For inserting errors after a specific step
 let capturedErrors = []; // Store recent errors for selection
 const MAX_CAPTURED_ERRORS = 20;
@@ -118,6 +120,60 @@ function addStep(step) {
   renderSteps();
 }
 
+// Generate raw text from steps
+function generateRawStepsText() {
+  if (steps.length === 0) return '';
+  return steps.map(step => generateStepText(step)).join('\n');
+}
+
+// Generate text for a single step
+function generateStepText(step) {
+  // If user has custom text, use that
+  if (step.customText) {
+    return step.customText;
+  }
+
+  const elementName = step.text?.trim() || step.selector || 'element';
+  const tag = step.tagName || '';
+
+  let elementType = '';
+  if (tag === 'button') elementType = 'button';
+  else if (tag === 'a') elementType = 'link';
+  else if (tag === 'input') elementType = step.inputType === 'checkbox' ? 'checkbox' : 'field';
+  else if (tag === 'select') elementType = 'dropdown';
+  else if (tag === 'textarea') elementType = 'text area';
+
+  if (step.type === 'error') {
+    const errorLabel = step.errorType === 'network' ? 'Network error' :
+                      step.errorType === 'console' ? 'Console error' : 'Note';
+    let text = `${errorLabel}: ${step.message || 'Unknown'}`;
+    if (step.url) text += ` (${step.url})`;
+    return text;
+  } else if (step.type === 'click') {
+    return `Click "${elementName}"${elementType ? ` (${elementType})` : ''}`;
+  } else if (step.type === 'input' || step.type === 'change') {
+    return `Enter "${step.value || ''}" in "${elementName}"${elementType ? ` (${elementType})` : ''}`;
+  } else if (step.type === 'focus') {
+    return `Focus "${elementName}"${elementType ? ` (${elementType})` : ''}`;
+  } else if (step.type === 'keydown') {
+    return `Press ${step.key}`;
+  } else if (step.type === 'navigate') {
+    return `Navigate to ${step.url || 'page'}`;
+  } else if (step.type === 'pageload') {
+    return `Page loaded: ${step.text || step.url || 'Unknown'}`;
+  } else if (step.type === 'assert') {
+    const assertType = step.assertType === 'exists' ? 'exists' :
+                      step.assertType === 'visible' ? 'is visible' : 'contains text';
+    return `Verify "${elementName}" ${assertType}`;
+  }
+  return `${step.type}: ${elementName}`;
+}
+
+// Update raw steps textarea
+function updateRawStepsTextarea() {
+  rawStepsTextarea.value = generateRawStepsText();
+}
+
 function renderSteps() {
   if (steps.length === 0) {
     stepsContainer.innerHTML = `
@@ -126,6 +182,7 @@ function renderSteps() {
         <div>No steps recorded yet. Click "Start" to begin recording.</div>
       </div>
     `;
+    updateRawStepsTextarea();
     return;
   }
 
@@ -134,7 +191,6 @@ function renderSteps() {
     const timeStr = formatTime(relativeTime);
 
     const isAssert = step.type === 'assert';
-    let details = '';
     let typeLabel = step.type.toUpperCase();
 
     if (isAssert) {
@@ -144,48 +200,37 @@ function renderSteps() {
         textContains: 'ASSERT TEXT'
       };
       typeLabel = assertLabels[step.assertType] || 'ASSERT';
-      details = `Element: ${step.selector || step.tagName || 'Unknown'}`;
-      if (step.text) details += `<br>Text: "${escapeHtml(step.text)}"`;
-    } else if (step.type === 'click') {
-      details = `Element: ${step.selector || step.tagName || 'Unknown'}<br>Text: ${step.text || 'N/A'}`;
-    } else if (step.type === 'input') {
-      details = `Element: ${step.selector || step.tagName || 'Unknown'}<br>Value: ${escapeHtml(step.value || '')}`;
-    } else if (step.type === 'change') {
-      details = `Element: ${step.selector || step.tagName || 'Unknown'}<br>Value: ${escapeHtml(step.value || '')}`;
-    } else if (step.type === 'keydown') {
-      details = `Key: ${step.key} (${step.code})`;
-    } else if (step.type === 'navigate') {
-      details = `URL: ${step.url || 'N/A'}`;
-    } else if (step.type === 'pageload') {
-      details = `Page: ${step.text || 'Unknown'}<br>URL: ${step.url || 'N/A'}`;
     } else if (step.type === 'error') {
       if (step.errorType === 'note') {
         typeLabel = 'NOTE';
       } else {
         typeLabel = step.errorType === 'network' ? 'NETWORK ERROR' : 'CONSOLE ERROR';
       }
-      details = escapeHtml(step.message || 'Unknown error');
-      if (step.url) details += `<br>URL: ${step.url}`;
     }
 
     const isError = step.type === 'error';
-    const isNote = step.type === 'error' && step.errorType === 'note';
+    const stepText = escapeHtml(generateStepText(step));
 
     return `
       <div class="step-item" data-index="${index}">
         <div class="step-number${isAssert ? ' assert' : ''}${isError ? ' error' : ''}">${index + 1}</div>
         <div class="step-content">
           <div class="step-type${isAssert ? ' assert' : ''}${isError ? ' error' : ''}">${typeLabel}</div>
-          <div class="step-details">${details}</div>
+          <div class="step-details">
+            <span class="step-text-editable" data-index="${index}" title="Click to edit">${stepText}</span>
+          </div>
           <div class="step-timestamp">+${timeStr}</div>
         </div>
         <button class="step-delete" data-index="${index}" title="Delete step">×</button>
       </div>
     `;
   }).join('');
-  
+
   // Scroll to bottom
   stepsContainer.scrollTop = stepsContainer.scrollHeight;
+
+  // Update raw steps textarea
+  updateRawStepsTextarea();
 }
 
 function formatTime(ms) {
@@ -326,6 +371,8 @@ btnClear.addEventListener('click', () => {
   if (confirm('Clear all recorded steps?')) {
     steps = [];
     recordingStartTime = null;
+    rawStepsTextarea.value = '';
+    llmStepsTextarea.value = '';
     renderSteps();
   }
 });
@@ -391,8 +438,8 @@ btnSaveKey.addEventListener('click', saveApiKey);
 // Load API key on startup
 loadApiKey();
 
-// Steps to Reproduce Generation using OpenAI API
-async function generateStepsToReproduce() {
+// LLM Generation using OpenAI API
+async function generateWithLLM() {
   if (steps.length === 0) {
     alert('No steps recorded. Please record some steps first.');
     return;
@@ -401,46 +448,36 @@ async function generateStepsToReproduce() {
   // Get API key
   const result = await chrome.storage.local.get(['openaiApiKey']);
   const apiKey = result.openaiApiKey;
-  
+
   if (!apiKey) {
     alert('Please set your OpenAI API key in Settings first.');
     apiKeyInput.focus();
     return;
   }
 
+  const mode = llmModeSelect.value;
+
   // Disable button and show loading
   btnGenerate.disabled = true;
   btnGenerate.textContent = 'Generating...';
-  testCasesSection.style.display = 'block';
-  testCasesContent.innerHTML = '<div class="loading">🔄 Generating steps to reproduce...</div>';
+  llmStepsTextarea.value = 'Generating...';
 
   try {
-    // Get current page URL if available
-    let pageUrl = '';
-    try {
-      if (chrome.devtools && chrome.devtools.inspectedWindow) {
-        pageUrl = chrome.devtools.inspectedWindow.tabId ? 'Current page' : '';
-      }
-    } catch (e) {}
-
-    // Format steps for the prompt - include element context
+    // Format steps for the prompt
     const stepsDescription = steps.map((step, index) => {
       const elementName = step.text?.trim() || step.selector || 'element';
       const tag = step.tagName || '';
 
-      // Determine element type description
       let elementType = '';
       if (tag === 'button') elementType = 'button';
       else if (tag === 'a') elementType = 'link';
       else if (tag === 'input') elementType = step.inputType === 'checkbox' ? 'checkbox' : 'field';
       else if (tag === 'select') elementType = 'dropdown';
       else if (tag === 'textarea') elementType = 'text area';
-      else if (['li', 'span', 'div'].includes(tag) && step.selector?.includes('menu')) elementType = 'menu item';
 
       let desc = `${index + 1}. ${step.type.toUpperCase()}`;
 
       if (step.type === 'error') {
-        // ERROR STEPS - make them prominent
         const errorLabel = step.errorType === 'network' ? 'NETWORK ERROR' :
                           step.errorType === 'console' ? 'CONSOLE ERROR' : 'NOTE';
         desc = `${index + 1}. **${errorLabel}**: ${step.message || 'Unknown error'}`;
@@ -450,11 +487,7 @@ async function generateStepsToReproduce() {
       } else if (step.type === 'pageload') {
         desc += `: Redirected to "${step.text || step.url || 'new page'}"`;
       } else if (step.type === 'assert') {
-        const assertDesc = {
-          exists: 'exists',
-          visible: 'is visible',
-          textContains: 'text exists'
-        };
+        const assertDesc = { exists: 'exists', visible: 'is visible', textContains: 'text exists' };
         desc += `: "${elementName}" ${elementType} ${assertDesc[step.assertType] || 'exists'}`;
       } else {
         desc += `: "${elementName}"`;
@@ -466,31 +499,10 @@ async function generateStepsToReproduce() {
       return desc;
     }).join('\n');
 
-    // Check if there are any error steps
     const hasErrors = steps.some(step => step.type === 'error');
 
-    // Create prompt for OpenAI
-    let rules = `Rules:
-- One step per line, no bullets, no numbers, no prefixes
-- Use element text in quotes, include element type (button, link, menu item, field)
-- Be concise: "Click 'Submit' button" not "Click Submit"
-- Combine focus + click into just click
-- No intro or outro
-- ONLY include steps from the list above - do NOT add or invent anything`;
-
-    if (hasErrors) {
-      rules += `
-- Include ALL errors from the list, format as: "Observe: [error message]"`;
-    }
-
-    const prompt = `Convert these recorded steps into brief "Steps to Reproduce":
-
-${stepsDescription}
-
-${rules}`;
-
-    // System message - plain lines, no prefixes
-    const systemMessage = 'You convert recorded steps into concise reproduction steps. One step per line, no bullets or numbers. Only include what is in the input - never invent steps or errors.\n\nExample:\nClick "Add Todo" button\nEnter "Test item" in input field\nClick "Submit" button';
+    // Get prompt and system message based on mode
+    const { systemMessage, prompt } = getLLMPrompt(mode, stepsDescription, hasErrors);
 
     // Call OpenAI API
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -502,14 +514,8 @@ ${rules}`;
       body: JSON.stringify({
         model: 'gpt-4o-mini',
         messages: [
-          {
-            role: 'system',
-            content: systemMessage
-          },
-          {
-            role: 'user',
-            content: prompt
-          }
+          { role: 'system', content: systemMessage },
+          { role: 'user', content: prompt }
         ],
         temperature: 0.3,
         max_tokens: 2000
@@ -522,32 +528,181 @@ ${rules}`;
     }
 
     const data = await response.json();
-    const stepsToReproduce = data.choices[0].message.content;
-
-    // Store for copying
-    generatedStepsText = stepsToReproduce;
-
-    // Display steps to reproduce in editable textarea
-    testCasesContent.innerHTML = `<textarea class="test-case-textarea" id="stepsTextarea">${escapeHtml(stepsToReproduce)}</textarea>`;
-
-    // Update stored text when user edits
-    document.getElementById('stepsTextarea').addEventListener('input', (e) => {
-      generatedStepsText = e.target.value;
-    });
-    
-    // Scroll to steps section
+    llmStepsTextarea.value = data.choices[0].message.content;
     testCasesSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
   } catch (error) {
-    console.error('Error generating steps to reproduce:', error);
-    testCasesContent.innerHTML = `<div class="error">❌ Error: ${escapeHtml(error.message)}</div>`;
+    console.error('Error generating:', error);
+    llmStepsTextarea.value = `Error: ${error.message}`;
   } finally {
     btnGenerate.disabled = false;
-    btnGenerate.textContent = 'Generate Steps to Reproduce';
+    btnGenerate.textContent = 'Generate';
   }
 }
 
-btnGenerate.addEventListener('click', generateStepsToReproduce);
+function getLLMPrompt(mode, stepsDescription, hasErrors) {
+  switch (mode) {
+    case 'steps':
+      return {
+        systemMessage: 'You convert recorded steps into concise reproduction steps. One step per line, no bullets or numbers. Only include what is in the input - never invent steps or errors.\n\nExample:\nClick "Add Todo" button\nEnter "Test item" in input field\nClick "Submit" button',
+        prompt: `Convert these recorded steps into brief "Steps to Reproduce":
+
+${stepsDescription}
+
+Rules:
+- One step per line, no bullets, no numbers, no prefixes
+- Use element text in quotes, include element type (button, link, field)
+- Be concise: "Click 'Submit' button" not "Click Submit"
+- Combine focus + click into just click
+- No intro or outro
+- ONLY include steps from the list above - do NOT add or invent anything${hasErrors ? '\n- Include ALL errors from the list, format as: "Observe: [error message]"' : ''}`
+      };
+
+    case 'testcases':
+      return {
+        systemMessage: 'You generate multiple test cases from recorded user interactions. Create happy path, negative, and edge case scenarios.',
+        prompt: `Based on these recorded steps, generate multiple test cases:
+
+${stepsDescription}
+
+Generate the following test cases:
+
+**1. Happy Path**
+The successful flow as recorded
+
+**2. Negative Test Cases**
+What happens with invalid inputs, empty fields, wrong data types
+
+**3. Edge Cases**
+Boundary conditions, special characters, very long inputs, etc.
+
+**4. Error Handling**
+How the system should handle failures gracefully
+
+Format each test case as:
+**[Test Case Name]**
+Preconditions: [if any]
+Steps:
+1. [step]
+2. [step]
+Expected Result: [outcome]
+
+Be practical and specific to the functionality being tested.${hasErrors ? '\n\nNote: Errors were observed during recording - include test cases that verify proper error handling.' : ''}`
+      };
+
+    case 'bugreport':
+      return {
+        systemMessage: 'You create concise bug reports from recorded steps. Include title, steps, expected vs actual behavior.',
+        prompt: `Create a bug report from these recorded steps:
+
+${stepsDescription}
+
+Format:
+**Title:** [Brief descriptive title]
+
+**Steps to Reproduce:**
+[Numbered steps]
+
+**Expected Result:**
+[What should happen]
+
+**Actual Result:**
+[What actually happened - use any errors from the steps]
+
+Rules:
+- Be concise
+- Title should summarize the bug
+- Include all errors as the actual result${!hasErrors ? '\n- If no errors recorded, leave Actual Result as "TBD" or describe unexpected behavior if apparent' : ''}`
+      };
+
+    case 'exploratory':
+      return {
+        systemMessage: 'You are a senior QA engineer providing exploratory testing guidance based on observed user flows.',
+        prompt: `Based on these recorded steps, provide exploratory testing considerations:
+
+${stepsDescription}
+
+Provide:
+
+**1. Areas to Explore**
+What related functionality should be tested beyond the recorded flow?
+
+**2. Questions to Answer**
+What behaviors are unclear and need investigation?
+
+**3. Test Charters**
+3-5 focused exploratory testing sessions (timeboxed missions)
+Format: "Explore [target] with [resources] to discover [information]"
+
+**4. Boundary Conditions**
+What limits and edge cases should be probed?
+
+**5. Integration Points**
+What other systems/features might be affected?
+
+**6. User Personas**
+How might different types of users interact differently?
+
+Be specific to the functionality observed in the steps.${hasErrors ? '\n\nNote: Errors were observed - include investigation of error conditions and recovery scenarios.' : ''}`
+      };
+
+    case 'riskbased':
+      return {
+        systemMessage: 'You are a QA architect performing risk-based testing analysis.',
+        prompt: `Based on these recorded steps, provide a risk-based testing analysis:
+
+${stepsDescription}
+
+Provide:
+
+**1. Risk Assessment**
+| Risk Area | Likelihood | Impact | Priority |
+|-----------|------------|--------|----------|
+[Identify 5-8 risks based on the functionality]
+
+**2. High-Priority Test Scenarios**
+Tests that must pass before release (based on highest risks)
+
+**3. Data Risks**
+What could go wrong with data integrity, validation, or storage?
+
+**4. Security Considerations**
+Potential security vulnerabilities to test (injection, auth bypass, etc.)
+
+**5. Performance Concerns**
+What might cause slowness or failures under load?
+
+**6. Regression Risks**
+What existing functionality might break?
+
+**7. Recommended Test Coverage**
+Prioritized list of what to test given limited time
+
+Be specific and actionable.${hasErrors ? '\n\nNote: Errors were already observed during recording - factor these into the risk assessment.' : ''}`
+      };
+
+    case 'playwright':
+      return {
+        systemMessage: 'You convert recorded steps into Playwright test code. Use modern Playwright syntax with async/await.',
+        prompt: `Convert these recorded steps into a Playwright test:
+
+${stepsDescription}
+
+Rules:
+- Use modern Playwright syntax (async/await)
+- Use appropriate locators (getByRole, getByText, locator)
+- Include assertions for any errors or verification steps
+- Wrap in test() function
+- Be practical - use realistic selectors
+- No explanatory comments, just clean code`
+      };
+
+    default:
+      return getLLMPrompt('steps', stepsDescription, hasErrors);
+  }
+}
+
+btnGenerate.addEventListener('click', generateWithLLM);
 
 // ============ Assertion Mode ============
 
@@ -852,18 +1007,55 @@ stepsContainer.addEventListener('click', (e) => {
       renderSteps();
     }
   }
+
+  // Inline edit on step text click
+  if (e.target.classList.contains('step-text-editable')) {
+    const index = parseInt(e.target.dataset.index, 10);
+    if (isNaN(index) || index < 0 || index >= steps.length) return;
+
+    const span = e.target;
+    const currentText = generateStepText(steps[index]);
+
+    // Replace span with input
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'step-edit-input';
+    input.value = currentText;
+    span.replaceWith(input);
+    input.focus();
+    input.select();
+
+    // Save on blur or Enter
+    const saveEdit = () => {
+      const newText = input.value.trim();
+      if (newText && newText !== currentText) {
+        steps[index].customText = newText;
+      }
+      renderSteps();
+    };
+
+    input.addEventListener('blur', saveEdit);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        input.blur();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        renderSteps(); // Cancel edit
+      }
+    });
+  }
 });
 
-// ============ Copy Generated Steps ============
+// ============ Copy Steps ============
 
-btnCopySteps.addEventListener('click', () => {
-  if (!generatedStepsText) {
-    alert('No steps to copy. Generate steps first.');
+function copyToClipboard(text, button) {
+  if (!text) {
+    alert('No steps to copy.');
     return;
   }
 
-  // Use execCommand in inspected page context (doesn't require focus like clipboard API)
-  const textToCopy = generatedStepsText
+  const escapedText = text
     .replace(/\\/g, '\\\\')
     .replace(/`/g, '\\`')
     .replace(/\$/g, '\\$')
@@ -871,7 +1063,7 @@ btnCopySteps.addEventListener('click', () => {
 
   chrome.devtools.inspectedWindow.eval(
     `(function() {
-      const text = \`${textToCopy}\`.replace(/\\\\n/g, '\\n');
+      const text = \`${escapedText}\`.replace(/\\\\n/g, '\\n');
       const textarea = document.createElement('textarea');
       textarea.value = text;
       textarea.style.cssText = 'position:fixed;left:-9999px;top:0;';
@@ -885,9 +1077,8 @@ btnCopySteps.addEventListener('click', () => {
     (result, error) => {
       if (error || !result) {
         console.error('Copy failed:', error);
-        // Fallback: copy within DevTools panel context
         const textarea = document.createElement('textarea');
-        textarea.value = generatedStepsText;
+        textarea.value = text;
         textarea.style.cssText = 'position:fixed;left:-9999px;top:0;';
         document.body.appendChild(textarea);
         textarea.focus();
@@ -895,14 +1086,22 @@ btnCopySteps.addEventListener('click', () => {
         document.execCommand('copy');
         document.body.removeChild(textarea);
       }
-      btnCopySteps.textContent = 'Copied!';
-      btnCopySteps.classList.add('copied');
+      button.textContent = 'Copied!';
+      button.classList.add('copied');
       setTimeout(() => {
-        btnCopySteps.textContent = 'Copy';
-        btnCopySteps.classList.remove('copied');
+        button.textContent = 'Copy';
+        button.classList.remove('copied');
       }, 2000);
     }
   );
+}
+
+btnCopyRaw.addEventListener('click', () => {
+  copyToClipboard(rawStepsTextarea.value, btnCopyRaw);
+});
+
+btnCopyLLM.addEventListener('click', () => {
+  copyToClipboard(llmStepsTextarea.value, btnCopyLLM);
 });
 
 // ============ Error Capture Toggles ============

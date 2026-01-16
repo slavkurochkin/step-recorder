@@ -1,15 +1,45 @@
 # Step Recorder - Chrome DevTools Extension
 
-A Chrome DevTools extension that records user interactions (clicks, inputs, keyboard events) on web pages for testing and automation purposes.
+A Chrome DevTools extension that records user interactions on web pages for testing, bug reporting, and test automation purposes.
 
 ## Features
 
-- **Record Interactions**: Captures clicks, text inputs, form changes, and keyboard events
-- **Start/Pause/Stop Controls**: Full control over recording session
-- **Visual Timeline**: See all recorded steps with timestamps
-- **Export Functionality**: Export recorded steps as JSON
-- **Smart Selectors**: Automatically generates CSS selectors for recorded elements
-- **AI Steps to Reproduce**: Transform recorded steps into clear, human-readable reproduction steps for debugging using OpenAI (LangChain-ready)
+### Recording
+- **User Interactions**: Captures clicks, text inputs, form changes, and keyboard events
+- **Page Navigation**: Tracks page loads, redirects, and browser back/forward
+- **Optional Focus Events**: Toggle recording of focus events on form elements
+- **Inline Editing**: Click on any recorded step to edit its description
+- **Delete Steps**: Remove individual steps from the recording
+
+### Error Capture
+- **Console Errors**: Automatically capture JavaScript console errors
+- **Network Errors**: Capture failed HTTP requests (4xx, 5xx)
+- **Capture ALL Logs**: Option to capture all console output (log, warn, error)
+- **Domain Filtering**: Filter errors to only capture from specific domains
+- **Manual Errors/Notes**: Add custom error messages or notes to the recording
+
+### Assertions
+- **Add Assertions**: Click elements to verify they exist, are visible, or contain specific text
+- **Context Menu**: Right-click steps to insert assertions at specific positions
+
+### Output Formats
+Two side-by-side text areas for easy comparison:
+
+**Raw Steps** (left)
+- Auto-generated from recorded steps
+- Updates in real-time as you record
+- Editable - changes sync back when you edit steps
+
+**LLM Output** (right) - Multiple generation modes:
+- **Steps to Reproduce**: Clean reproduction steps for bug reports
+- **Test Cases**: Multiple test cases (happy path, negative, edge cases, error handling)
+- **Bug Report**: Formatted bug report with title, steps, expected/actual results
+- **Exploratory Testing**: Test charters, areas to explore, boundary conditions
+- **Risk-Based Testing**: Risk assessment table, security/performance concerns
+- **Playwright**: Automated test code for Playwright
+
+### Export
+- **Export JSON**: Save all recorded steps with full metadata
 
 ## Installation
 
@@ -21,93 +51,143 @@ A Chrome DevTools extension that records user interactions (clicks, inputs, keyb
 
 ## Usage
 
-1. Open any webpage you want to record interactions on
+### Basic Recording
+
+1. Open any webpage you want to record
 2. Open Chrome DevTools (F12 or Right-click → Inspect)
 3. Navigate to the "Step Recorder" tab in DevTools
-4. Click "Start" to begin recording
+4. Click **Start** to begin recording
 5. Interact with the page (click buttons, enter text, etc.)
-6. Use "Pause" to temporarily stop recording
-7. Use "Stop" to end the recording session
-8. Click "Export Steps" to save the recorded steps as JSON
-9. Click "Generate Steps to Reproduce" to convert recorded steps into clear reproduction instructions for debugging (requires OpenAI API key)
+6. Use **Pause** to temporarily stop recording
+7. Use **Stop** to end the recording session
 
-## AI Steps to Reproduce Generation
+### Capturing Errors
 
-The extension can automatically convert your recorded steps into clear, human-readable "Steps to Reproduce" format perfect for bug reports and debugging.
+1. Check **Console errors** to capture JavaScript errors
+2. Check **Network errors** to capture failed HTTP requests
+3. Check **ALL logs** to capture everything (useful for debugging)
+4. Use **Only capture from** to filter by domain (e.g., `http://localhost:3000`)
+5. Click **+ Error** to manually add an error or note
 
-### Setup
+### Adding Assertions
 
-1. Get an OpenAI API key from [https://platform.openai.com/api-keys](https://platform.openai.com/api-keys)
-2. In the Step Recorder panel, enter your API key in the Settings section
-3. Click "Save" to store your API key securely (stored locally in Chrome storage)
-4. Record the steps that reproduce a bug or issue
-5. Click "Generate Steps to Reproduce" to get clear, actionable instructions
+1. Click **+ Assert** button
+2. Choose assertion type (exists, visible, text contains)
+3. Click an element on the page to create the assertion
+4. Or right-click any step → "Add Assertion After"
 
-### How It Works
+### Editing Steps
 
-The extension uses the OpenAI API (GPT-4o-mini) to analyze your recorded steps and generate:
-- Clear, actionable step-by-step instructions
-- Natural language descriptions that anyone can follow
-- Specific element descriptions (button text, field labels, etc.)
-- Focus on reproducibility for debugging and bug reports
+- Click on any step's text to edit it inline
+- Press **Enter** to save, **Escape** to cancel
+- Click the **×** button to delete a step
 
-### LangChain Integration
+### Generating Output
 
-The extension is designed to work with LangChain. See `LANGCHAIN_INTEGRATION.md` for details on using LangChain for more advanced features like chains, agents, and complex workflows.
+1. Enter your OpenAI API key in Settings
+2. Select a mode from the dropdown (Steps to Reproduce, Test Cases, etc.)
+3. Click **Generate**
+4. Use **Copy** to copy either raw steps or LLM output
+
+## LLM Generation Modes
+
+### Steps to Reproduce
+Simple, clean reproduction steps - one per line, no formatting.
+
+### Test Cases
+Generates multiple test cases:
+- Happy Path - the successful flow
+- Negative Test Cases - invalid inputs, empty fields
+- Edge Cases - boundary conditions, special characters
+- Error Handling - graceful failure scenarios
+
+### Bug Report
+Formatted bug report with:
+- Title
+- Steps to Reproduce
+- Expected Result
+- Actual Result
+
+### Exploratory Testing
+Provides:
+- Areas to Explore
+- Questions to Answer
+- Test Charters (timeboxed missions)
+- Boundary Conditions
+- Integration Points
+- User Personas
+
+### Risk-Based Testing
+Provides:
+- Risk Assessment Table (likelihood, impact, priority)
+- High-Priority Test Scenarios
+- Data Risks
+- Security Considerations
+- Performance Concerns
+- Regression Risks
+- Recommended Test Coverage
+
+### Playwright
+Generates Playwright test code with:
+- Modern async/await syntax
+- Appropriate locators
+- Assertions for verification steps
 
 ## Recorded Events
 
-The extension records:
-- **Clicks**: Button clicks, link clicks, and other clickable elements
-- **Input**: Text entered into input fields and textareas
-- **Change**: Form field changes (selects, checkboxes, etc.)
-- **Keydown**: Special keyboard keys (Enter, Escape, Arrow keys, etc.)
-- **Focus**: Focus events on form elements
+| Event | Description |
+|-------|-------------|
+| Click | Button clicks, link clicks, clickable elements |
+| Input | Text entered into input fields and textareas |
+| Change | Form field changes (selects, checkboxes) |
+| Keydown | Special keys (Enter, Escape, Arrow keys, F1-F12) |
+| Focus | Focus on form elements (optional) |
+| Navigate | Browser back/forward navigation |
+| Pageload | Page loads and redirects |
+| Assert | User-added assertions |
+| Error | Captured or manually added errors |
 
 ## Exported Data Format
 
-The exported JSON includes:
-- Timestamp of the recording session
-- Array of steps with:
-  - Type of interaction
-  - Timestamp (relative to recording start)
-  - Element selector
-  - Element details (text, value, etc.)
-  - Additional metadata (coordinates, key codes, etc.)
+```json
+{
+  "timestamp": "2024-01-15T10:30:00.000Z",
+  "steps": [
+    {
+      "type": "click",
+      "timestamp": 1234567890,
+      "tagName": "button",
+      "selector": ".submit-btn",
+      "text": "Submit",
+      "x": 100,
+      "y": 200
+    }
+  ],
+  "totalSteps": 1
+}
+```
 
-## Development
-
-### Project Structure
+## Project Structure
 
 ```
 step-recorder/
-├── manifest.json       # Extension manifest
+├── manifest.json       # Extension manifest (MV3)
 ├── devtools.html       # DevTools page entry point
 ├── devtools.js         # DevTools panel creation
 ├── panel.html          # DevTools panel UI
 ├── panel.js            # Panel logic and UI handling
 ├── content.js          # Content script for event capture
 ├── background.js       # Background service worker
+├── icon16.png          # Extension icon (16x16)
+├── icon48.png          # Extension icon (48x48)
+├── icon128.png         # Extension icon (128x128)
 └── README.md           # This file
 ```
 
-### Icons
+## Requirements
 
-You'll need to add icon files:
-- `icon16.png` (16x16)
-- `icon48.png` (48x48)
-- `icon128.png` (128x128)
-
-**To create icons:**
-
-1. **Option 1 (Recommended)**: Open `generate-icons.html` in your browser and save each icon with the correct filename.
-
-2. **Option 2**: If you have ImageMagick installed, run:
-   ```bash
-   ./create-icons.sh
-   ```
-
-3. **Option 3**: Create your own icons using any image editor and save them as `icon16.png`, `icon48.png`, and `icon128.png`.
+- Chrome browser (Manifest V3 compatible)
+- OpenAI API key (for LLM features)
 
 ## License
 

@@ -1114,7 +1114,7 @@ async function loadRecordingSettings() {
     captureConsoleErrors.checked = result.captureConsoleErrors || false;
     captureNetworkErrors.checked = result.captureNetworkErrors || false;
     captureAllLogs.checked = result.captureAllLogs || false;
-    filterByDomain.checked = result.filterByDomain !== false; // Default to true
+    filterByDomain.checked = result.filterByDomain === true; // Default to false
     domainFilter.value = result.domainFilter || '';
 
     // Auto-detect domain from inspected page if not set

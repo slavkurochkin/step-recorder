@@ -12,7 +12,7 @@ if (window.__stepRecorderInjected) {
   let captureConsoleErrors = false;
   let captureNetworkErrors = false;
   let captureAllLogs = false;
-  let filterByDomain = true;
+  let filterByDomain = false;
   let domainFilterPattern = '';
   let recordingJustStarted = false;
 
@@ -77,7 +77,7 @@ if (window.__stepRecorderInjected) {
     captureConsoleErrors = result.captureConsoleErrors || false;
     captureNetworkErrors = result.captureNetworkErrors || false;
     captureAllLogs = result.captureAllLogs || false;
-    filterByDomain = result.filterByDomain !== false; // Default to true
+    filterByDomain = result.filterByDomain === true; // Default to false
     domainFilterPattern = result.domainFilter || '';
     console.log('Loaded recording settings:', { recordFocusEvents, captureConsoleErrors, captureNetworkErrors, captureAllLogs, filterByDomain, domainFilterPattern });
   });
@@ -330,6 +330,15 @@ function recordStep(type, element, additionalData = {}) {
   const state = window.__stepRecorderState;
   if (!state || !state.isRecording || state.isPaused) {
     return;
+  }
+
+  // Check domain filter if enabled
+  if (filterByDomain && domainFilterPattern) {
+    const currentUrl = window.location.href;
+    if (!currentUrl.startsWith(domainFilterPattern)) {
+      console.log('Step Recorder: Skipping step - domain filter mismatch:', currentUrl, 'does not match', domainFilterPattern);
+      return;
+    }
   }
 
   if (!element || !element.tagName) {

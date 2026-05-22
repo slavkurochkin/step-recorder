@@ -722,6 +722,112 @@
       background: #4CAF50;
     }
 
+    .step-selector-btn {
+      position: absolute;
+      right: 26px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 18px;
+      height: 18px;
+      border: none;
+      background: transparent;
+      color: #aaa;
+      cursor: pointer;
+      border-radius: 3px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      transition: opacity 0.15s, background 0.15s, color 0.15s;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 0;
+      font-family: monospace;
+    }
+
+    .step-item:hover .step-selector-btn { opacity: 1; }
+    .step-selector-btn:hover { background: #e3f2fd; color: #1565C0; }
+
+    .step-sel-chip {
+      font-family: 'Monaco', 'Menlo', monospace;
+      font-size: 9px;
+      color: #1565C0;
+      background: #e3f2fd;
+      border: 1px solid #90caf9;
+      padding: 1px 5px;
+      border-radius: 3px;
+      max-width: 130px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex-shrink: 0;
+      cursor: pointer;
+    }
+
+    .step-sel-chip:hover { background: #bbdefb; }
+
+    .selector-picker {
+      display: none;
+      position: fixed;
+      background: white;
+      border-radius: 6px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+      z-index: 1002;
+      min-width: 300px;
+      max-width: 460px;
+      overflow: hidden;
+      border: 1px solid #e0e0e0;
+    }
+
+    .selector-picker.show { display: block; }
+
+    .selector-picker-title {
+      font-size: 10px;
+      font-weight: 700;
+      color: #999;
+      padding: 8px 12px 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      border-bottom: 1px solid #f0f0f0;
+      background: #fafafa;
+    }
+
+    .selector-option {
+      padding: 7px 12px;
+      cursor: pointer;
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+      border-bottom: 1px solid #f5f5f5;
+      transition: background 0.1s;
+    }
+
+    .selector-option:last-child { border-bottom: none; }
+    .selector-option:hover { background: #f0f7ff; }
+    .selector-option.active { background: #e8f5e9; }
+
+    .selector-option-label {
+      font-size: 9px;
+      font-weight: 700;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+      flex-shrink: 0;
+      min-width: 72px;
+    }
+
+    .selector-option.active .selector-option-label { color: #2e7d32; }
+
+    .selector-option-value {
+      font-family: 'Monaco', 'Menlo', monospace;
+      font-size: 11px;
+      color: #333;
+      word-break: break-all;
+      line-height: 1.4;
+    }
+
+    .selector-option.active .selector-option-value { color: #1b5e20; font-weight: 600; }
+
     /* Editable step text */
     .step-text-editable {
       cursor: pointer;
@@ -1218,6 +1324,9 @@
       <button class="modal-cancel" id="btnCloseNetworkDetail2" style="margin-top:4px;">Close</button>
     </div>
   </div>
+
+  <!-- Selector Picker -->
+  <div id="selectorPicker" class="selector-picker"></div>
 
   <!-- Context Menu -->
   <div id="contextMenu" class="context-menu">

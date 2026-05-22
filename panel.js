@@ -372,14 +372,17 @@ function renderSteps() {
 
     const stepText = escapeHtml(generateStepText(step));
 
+    const hasAlts = step.selectorAlternatives?.length > 1;
+    const currentSel = step.selector || '';
     return `
-      <div class="step-item" data-index="${index}">
+      <div class="step-item" data-index="${index}"${hasAlts ? ' style="padding-right:46px;"' : ''}>
         <div class="step-number${badgeClass ? ' ' + badgeClass : ''}">${index + 1}</div>
         <div class="step-content">
           <span class="step-badge${badgeClass ? ' ' + badgeClass : ''}">${typeLabel}</span>
           <span class="step-text-editable step-details" data-index="${index}" title="Click to edit">${stepText}</span>
           <span class="step-timestamp">+${timeStr}</span>
         </div>
+        ${hasAlts ? `<button class="step-selector-btn" data-index="${index}" title="Switch selector&#10;current: ${escapeHtml(currentSel)}">#</button>` : ''}
         <button class="step-delete" data-index="${index}" title="Delete step">×</button>
       </div>
     `;
@@ -492,6 +495,49 @@ function showNetworkDetail(step) {
 function hideNetworkDetail() {
   document.getElementById('networkDetailModal').classList.remove('show');
 }
+
+// ============ Selector Picker ============
+
+let _pickerStepIndex = null;
+const selectorPicker = document.getElementById('selectorPicker');
+
+function showSelectorPicker(stepIndex, btnEl) {
+  const step = steps[stepIndex];
+  if (!step?.selectorAlternatives?.length) return;
+
+  _pickerStepIndex = stepIndex;
+  selectorPicker.innerHTML =
+    `<div class="selector-picker-title">Choose Selector</div>` +
+    step.selectorAlternatives.map((alt, i) =>
+      `<div class="selector-option${alt.selector === step.selector ? ' active' : ''}" data-picker-idx="${i}">
+        <span class="selector-option-label">${escapeHtml(alt.label)}</span>
+        <span class="selector-option-value">${escapeHtml(alt.selector)}</span>
+      </div>`
+    ).join('');
+
+  const rect = btnEl.getBoundingClientRect();
+  const left = Math.min(rect.left, window.innerWidth - 470);
+  selectorPicker.style.left = left + 'px';
+  selectorPicker.style.top = (rect.bottom + 4) + 'px';
+  selectorPicker.classList.add('show');
+}
+
+function hideSelectorPicker() {
+  selectorPicker.classList.remove('show');
+  _pickerStepIndex = null;
+}
+
+selectorPicker.addEventListener('click', (e) => {
+  const option = e.target.closest('.selector-option');
+  if (!option || _pickerStepIndex === null) return;
+  const idx = parseInt(option.dataset.pickerIdx, 10);
+  const step = steps[_pickerStepIndex];
+  if (step && step.selectorAlternatives?.[idx]) {
+    step.selector = step.selectorAlternatives[idx].selector;
+    renderSteps();
+  }
+  hideSelectorPicker();
+});
 
 function updateStatus() {
   if (isRecording && !isPaused) {
@@ -1077,6 +1123,8 @@ document.addEventListener('keydown', (e) => {
       hideAssertModal();
     } else if (document.getElementById('networkDetailModal').classList.contains('show')) {
       hideNetworkDetail();
+    } else if (selectorPicker.classList.contains('show')) {
+      hideSelectorPicker();
     }
     hideContextMenu();
   }
@@ -1346,13 +1394,23 @@ document.getElementById('btnCopyResponse').addEventListener('click', () => {
   });
 });
 
-// Hide context menu on click elsewhere
+// Hide context menu and selector picker on click elsewhere
 document.addEventListener('click', (e) => {
   hideContextMenu();
+  if (!e.target.closest('#selectorPicker') && !e.target.classList.contains('step-selector-btn')) {
+    hideSelectorPicker();
+  }
 });
 
-// Delete button click on steps
+// Delete / selector-picker button clicks on steps
 stepsContainer.addEventListener('click', (e) => {
+  if (e.target.classList.contains('step-selector-btn')) {
+    e.stopPropagation();
+    const index = parseInt(e.target.dataset.index, 10);
+    showSelectorPicker(index, e.target);
+    return;
+  }
+
   if (e.target.classList.contains('step-delete')) {
     e.stopPropagation();
     const index = parseInt(e.target.dataset.index, 10);

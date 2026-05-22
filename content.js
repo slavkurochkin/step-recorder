@@ -310,6 +310,43 @@ function getSelector(element) {
   return path.join(' > ');
 }
 
+function getSelectorAlternatives(element) {
+  const alts = [];
+  const tag = element.tagName.toLowerCase();
+
+  if (element.id)
+    alts.push({ label: 'id', selector: `#${element.id}` });
+
+  for (const attr of ['data-testid', 'data-test', 'data-cy', 'data-qa', 'data-test-id']) {
+    const val = element.getAttribute(attr);
+    if (val) alts.push({ label: attr, selector: `[${attr}="${val}"]` });
+  }
+
+  const ariaLabel = element.getAttribute('aria-label');
+  if (ariaLabel) alts.push({ label: 'aria-label', selector: `[aria-label="${ariaLabel}"]` });
+
+  const name = element.getAttribute('name');
+  if (name) alts.push({ label: 'name', selector: `${tag}[name="${name}"]` });
+
+  const placeholder = element.getAttribute('placeholder');
+  if (placeholder) alts.push({ label: 'placeholder', selector: `[placeholder="${placeholder}"]` });
+
+  const role = element.getAttribute('role');
+  if (role) alts.push({ label: 'role', selector: `[role="${role}"]` });
+
+  if (element.className && typeof element.className === 'string') {
+    const classes = element.className.trim().split(/\s+/).filter(c => c && c.length < 40 && !c.includes(':'));
+    if (classes.length > 0 && classes.length <= 4)
+      alts.push({ label: 'class', selector: `.${classes.join('.')}` });
+  }
+
+  const cssPath = getSelector(element);
+  if (cssPath && !alts.some(a => a.selector === cssPath))
+    alts.push({ label: 'css path', selector: cssPath });
+
+  return alts;
+}
+
 function recordStep(type, element, additionalData = {}) {
   // Check if extension context is still valid
   if (!isExtensionValid()) {
@@ -360,6 +397,7 @@ function recordStep(type, element, additionalData = {}) {
     timestamp: now,
     tagName: element.tagName.toLowerCase(),
     selector: selector,
+    selectorAlternatives: getSelectorAlternatives(element),
     text: element.textContent ? element.textContent.trim().substring(0, 100) : '',
     ...additionalData
   };

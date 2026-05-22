@@ -11,45 +11,37 @@
 
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-      padding: 16px;
-      background: #f5f5f5;
+      padding: 0;
+      background: white;
     }
 
     .container {
       max-width: 100%;
       background: white;
-      border-radius: 8px;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
       overflow: hidden;
     }
 
     .controls {
-      padding: 16px;
+      padding: 8px 12px;
       background: #f9f9f9;
       border-bottom: 1px solid #e0e0e0;
       display: flex;
-      gap: 8px;
+      gap: 6px;
       align-items: center;
     }
 
     button {
-      padding: 8px 16px;
+      padding: 6px 12px;
       border: none;
       border-radius: 4px;
       cursor: pointer;
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 500;
-      transition: all 0.2s;
+      transition: background 0.15s;
     }
 
-    button:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    }
-
-    button:active {
-      transform: translateY(0);
-    }
+    button:hover { opacity: 0.85; }
+    button:active { opacity: 0.7; }
 
     .btn-start {
       background: #4CAF50;
@@ -117,113 +109,272 @@
       50% { opacity: 0.7; }
     }
 
-    .steps-container {
-      max-height: 600px;
-      overflow-y: auto;
+    .recording-area {
+      display: flex;
+      border-bottom: 1px solid #e0e0e0;
     }
 
-    .step-item {
-      padding: 12px 16px;
-      padding-right: 36px;
-      border-bottom: 1px solid #e0e0e0;
+    .recording-panel {
+      flex: 1;
+      min-width: 0;
       display: flex;
-      align-items: flex-start;
-      gap: 12px;
-      transition: background 0.2s;
+      flex-direction: column;
+    }
+
+    .method-filters {
+      padding: 4px 8px;
+      background: #fafafa;
+      border-bottom: 1px solid #eee;
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+      min-height: 0;
+    }
+
+    .method-filters:empty { display: none; }
+
+    .network-search-bar {
+      padding: 4px 8px;
+      background: #fafafa;
+      border-bottom: 1px solid #eee;
+    }
+
+    .network-search-input {
+      width: 100%;
+      padding: 3px 8px;
+      border: 1px solid #ddd;
+      border-radius: 3px;
+      font-size: 11px;
+      font-family: 'Monaco', 'Menlo', monospace;
+      box-sizing: border-box;
+      background: white;
+    }
+
+    .network-search-input:focus {
+      outline: none;
+      border-color: #00897B;
+      background: #fff;
+    }
+
+    .method-pill {
+      padding: 1px 7px;
+      border-radius: 3px;
+      cursor: pointer;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+      border: 1.5px solid transparent;
+      transition: opacity 0.15s;
+      background: transparent;
+    }
+
+    .method-pill.off {
+      opacity: 0.25;
+    }
+
+    .panel-resizer {
+      width: 5px;
+      background: #e0e0e0;
+      cursor: col-resize;
+      flex-shrink: 0;
+      transition: background 0.15s;
       position: relative;
     }
 
-    .step-item:hover {
-      background: #f9f9f9;
+    .panel-resizer::after {
+      content: '';
+      position: absolute;
+      top: 0; bottom: 0;
+      left: -3px; right: -3px;
     }
 
-    .step-item:last-child {
-      border-bottom: none;
+    .panel-resizer:hover,
+    .panel-resizer.dragging {
+      background: #2196F3;
     }
+
+    .recording-panel-header {
+      padding: 6px 10px;
+      background: #f0f0f0;
+      border-bottom: 1px solid #e0e0e0;
+      font-size: 12px;
+      font-weight: 600;
+      color: #444;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    .recording-panel-header span {
+      flex-shrink: 0;
+    }
+
+    .network-filter-input {
+      flex: 1;
+      padding: 2px 6px;
+      border: 1px solid #ddd;
+      border-radius: 3px;
+      font-size: 11px;
+      min-width: 0;
+      font-family: 'Monaco', 'Menlo', monospace;
+    }
+
+    .network-filter-input:focus {
+      outline: none;
+      border-color: #00897B;
+    }
+
+    .steps-container {
+      max-height: 450px;
+      overflow-y: auto;
+    }
+
+    .network-url {
+      font-family: 'Monaco', 'Menlo', monospace;
+      font-size: 11px;
+      word-break: break-all;
+    }
+
+    .network-status {
+      font-size: 11px;
+      font-weight: 600;
+      color: #2e7d32;
+      margin-left: 4px;
+      flex-shrink: 0;
+    }
+
+    .network-status.error {
+      color: #f44336;
+    }
+
+    .network-duration {
+      font-size: 10px;
+      color: #999;
+      margin-left: 4px;
+      flex-shrink: 0;
+    }
+
+    .network-detail-line {
+      font-size: 10px;
+      color: #888;
+      font-family: 'Monaco', 'Menlo', monospace;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-top: 2px;
+    }
+
+    .step-item {
+      padding: 5px 10px;
+      padding-right: 28px;
+      border-bottom: 1px solid #f0f0f0;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      transition: background 0.15s;
+      position: relative;
+      min-height: 30px;
+    }
+
+    .step-item:hover { background: #f9f9f9; }
+    .step-item:last-child { border-bottom: none; }
 
     .step-number {
       background: #2196F3;
       color: white;
-      width: 24px;
-      height: 24px;
+      width: 18px;
+      height: 18px;
       border-radius: 50%;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 12px;
-      font-weight: bold;
+      font-size: 9px;
+      font-weight: 700;
       flex-shrink: 0;
     }
+
+    .step-number.assert { background: #9C27B0; }
+    .step-number.error  { background: #f44336; }
+    .step-number.network { background: #00897B; }
 
     .step-content {
       flex: 1;
       min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 6px;
     }
 
-    .step-type {
-      font-weight: 600;
-      color: #333;
-      margin-bottom: 4px;
-      font-size: 14px;
+    .step-badge {
+      display: inline-block;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+      color: #888;
+      background: #efefef;
+      border-radius: 3px;
+      padding: 1px 5px;
+      text-transform: uppercase;
+      flex-shrink: 0;
+      min-width: 38px;
+      text-align: center;
     }
+
+    .step-badge.assert  { background: #f3e5f5; color: #9C27B0; }
+    .step-badge.error   { background: #ffebee; color: #c62828; }
+    .step-badge.network { background: #e0f2f1; color: #00695c; }
 
     .step-details {
+      flex: 1;
+      min-width: 0;
       font-size: 12px;
-      color: #666;
-      word-break: break-word;
+      color: #333;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     .step-timestamp {
-      font-size: 11px;
-      color: #999;
-      margin-top: 4px;
+      font-size: 10px;
+      color: #bbb;
+      flex-shrink: 0;
     }
 
     .step-delete {
       position: absolute;
-      right: 8px;
-      top: 8px;
-      width: 22px;
-      height: 22px;
+      right: 5px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 18px;
+      height: 18px;
       border: none;
-      background: #eee;
-      color: #888;
+      background: transparent;
+      color: #bbb;
       cursor: pointer;
-      border-radius: 50%;
+      border-radius: 3px;
       display: flex;
       align-items: center;
       justify-content: center;
       opacity: 0;
-      transition: all 0.2s ease;
-      font-size: 16px;
-      font-weight: 400;
-      line-height: 1;
+      transition: opacity 0.15s, background 0.15s;
+      font-size: 14px;
       padding: 0;
     }
 
-    .step-item:hover .step-delete {
-      opacity: 1;
-    }
-
-    .step-delete:hover {
-      background: #f44336;
-      color: white;
-      transform: scale(1.1);
-    }
-
-    .step-delete:active {
-      transform: scale(0.95);
-    }
+    .step-item:hover .step-delete { opacity: 1; }
+    .step-delete:hover { background: #fee; color: #f44336; }
 
     .empty-state {
-      padding: 48px 16px;
+      padding: 32px 16px;
       text-align: center;
-      color: #999;
+      color: #bbb;
+      font-size: 12px;
     }
 
     .empty-state-icon {
-      font-size: 48px;
-      margin-bottom: 16px;
+      font-size: 28px;
+      margin-bottom: 8px;
       opacity: 0.5;
     }
 
@@ -259,38 +410,30 @@
     }
 
     .settings-section {
-      padding: 16px;
+      padding: 6px 12px;
       background: #f9f9f9;
       border-bottom: 1px solid #e0e0e0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
     }
 
-    .settings-section h3 {
-      font-size: 14px;
-      font-weight: 600;
-      margin-bottom: 12px;
-      color: #333;
+    .settings-section label {
+      font-size: 11px;
+      color: #888;
+      flex-shrink: 0;
     }
 
     .settings-row {
+      flex: 1;
       display: flex;
-      gap: 8px;
+      gap: 6px;
       align-items: center;
-      margin-bottom: 8px;
-    }
-
-    .settings-row:last-child {
-      margin-bottom: 0;
-    }
-
-    .settings-row label {
-      font-size: 12px;
-      color: #666;
-      min-width: 100px;
     }
 
     .settings-row input {
       flex: 1;
-      padding: 6px 12px;
+      padding: 4px 8px;
       border: 1px solid #ddd;
       border-radius: 4px;
       font-size: 12px;
@@ -305,13 +448,11 @@
     .btn-save {
       background: #4CAF50;
       color: white;
-      padding: 6px 12px;
-      font-size: 12px;
+      padding: 4px 10px;
+      font-size: 11px;
     }
 
-    .btn-save:hover {
-      background: #45a049;
-    }
+    .btn-save:hover { background: #45a049; }
 
     .test-cases-section {
       padding: 16px;
@@ -424,7 +565,6 @@
       color: #f44336;
     }
 
-    /* Assertion styles */
     .btn-assert {
       background: #9C27B0;
       color: white;
@@ -448,13 +588,6 @@
       background: #d32f2f;
     }
 
-    .step-number.assert {
-      background: #9C27B0;
-    }
-
-    .step-type.assert {
-      color: #9C27B0;
-    }
 
     /* Assertion modal */
     .modal-overlay {
@@ -612,36 +745,26 @@
       outline: none;
     }
 
-    /* Error capture toggle */
     .options-row {
       display: flex;
-      gap: 16px;
-      padding: 8px 16px;
+      gap: 12px;
+      padding: 5px 12px;
       background: #f9f9f9;
       border-bottom: 1px solid #e0e0e0;
-      font-size: 12px;
+      font-size: 11px;
+      color: #555;
     }
 
     .option-toggle {
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 4px;
       cursor: pointer;
+      white-space: nowrap;
     }
 
-    .option-toggle input {
-      cursor: pointer;
-    }
+    .option-toggle input { cursor: pointer; }
 
-    /* Error step styles */
-    .step-number.error {
-      background: #f44336;
-      color: white;
-    }
-
-    .step-type.error {
-      color: #f44336;
-    }
 
     /* Error list in modal */
     .error-list-section {
@@ -718,27 +841,184 @@
       padding-top: 12px;
     }
 
-    .domain-input {
-      flex: 1;
-      padding: 4px 8px;
-      border: 1px solid #ddd;
-      border-radius: 4px;
-      font-size: 12px;
-      min-width: 150px;
+
+    .network-request-details {
+      font-size: 11px;
+      color: #777;
+      font-family: 'Monaco', 'Menlo', monospace;
+      margin-top: 3px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 100%;
     }
 
-    .domain-input:focus {
-      outline: none;
-      border-color: #2196F3;
+    .network-request-details .req-label {
+      color: #888;
+      font-weight: 600;
+    }
+
+    .network-request-details .res-label {
+      color: #00897B;
+      font-weight: 600;
+    }
+
+    .network-detail-modal {
+      min-width: 380px;
+      max-width: min(680px, 95vw);
+      max-height: 80vh;
+      overflow-y: auto;
+      width: 90%;
+    }
+
+    .network-detail-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+      gap: 8px;
+    }
+
+    .network-detail-title {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .network-detail-url {
+      font-family: 'Monaco', 'Menlo', monospace;
+      font-size: 11px;
+      word-break: break-all;
+      color: #333;
+      background: #f5f5f5;
+      padding: 8px 10px;
+      border-radius: 4px;
+      margin-bottom: 12px;
+      line-height: 1.5;
+      border: 1px solid #e8e8e8;
+    }
+
+    .network-detail-section {
+      margin-bottom: 12px;
+    }
+
+    .network-detail-section-title {
+      font-size: 10px;
+      font-weight: 700;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 4px;
+    }
+
+    .network-detail-pre {
+      font-family: 'Monaco', 'Menlo', monospace;
+      font-size: 11px;
+      background: #f5f5f5;
+      padding: 10px;
+      border-radius: 4px;
+      overflow-x: auto;
+      max-height: 260px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+      color: #333;
+      margin: 0;
+      border: 1px solid #e8e8e8;
+      line-height: 1.5;
+    }
+
+    .network-detail-close {
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 20px;
+      color: #999;
+      padding: 0 4px;
+      line-height: 1;
+      flex-shrink: 0;
+    }
+
+    .network-detail-close:hover { color: #333; }
+
+    .network-detail-action-btn {
+      font-size: 10px;
+      padding: 2px 8px;
+      background: #f0f0f0;
+      color: #555;
+      border: 1px solid #ddd;
+      border-radius: 3px;
+      cursor: pointer;
+      font-weight: 600;
+      letter-spacing: 0.2px;
+    }
+
+    .network-detail-action-btn:hover { background: #e3f2fd; color: #1565C0; border-color: #90caf9; }
+    .network-detail-action-btn.active { background: #e8f5e9; color: #2e7d32; border-color: #a5d6a7; }
+    .network-detail-action-btn.copied { background: #e8f5e9; color: #2e7d32; border-color: #a5d6a7; }
+
+    .collapsible-title {
+      cursor: pointer;
+      user-select: none;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .collapsible-title:hover { color: #555; }
+
+    .collapse-arrow {
+      font-size: 8px;
+      display: inline-block;
+      transition: transform 0.15s;
+      color: #aaa;
+    }
+
+    .collapse-arrow.open { transform: rotate(90deg); }
+
+    .headers-table-wrap {
+      max-height: 180px;
+      overflow-y: auto;
+      border: 1px solid #e8e8e8;
+      border-radius: 4px;
+      background: #f5f5f5;
+    }
+
+    .headers-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-family: 'Monaco', 'Menlo', monospace;
+      font-size: 11px;
+    }
+
+    .headers-table tr:not(:last-child) td { border-bottom: 1px solid #ececec; }
+
+    .headers-table td {
+      padding: 3px 8px;
+      vertical-align: top;
+      line-height: 1.4;
+    }
+
+    .headers-table td:first-child {
+      color: #666;
+      white-space: nowrap;
+      font-weight: 600;
+      width: 38%;
+      word-break: break-word;
+    }
+
+    .headers-table td:last-child {
+      color: #333;
+      word-break: break-all;
     }
   </style>
 </head>
 <body>
   <div class="container">
     <div class="settings-section">
-      <h3>⚙️ Settings</h3>
+      <label>OpenAI API Key:</label>
       <div class="settings-row">
-        <label>OpenAI API Key:</label>
         <input type="password" id="apiKeyInput" placeholder="sk-...">
         <button id="btnSaveKey" class="btn-save">Save</button>
         <span id="apiKeyStatus" class="api-key-status missing">Not set</span>
@@ -777,18 +1057,41 @@
         ALL logs
       </label>
     </div>
-    <div class="options-row">
-      <label class="option-toggle">
-        <input type="checkbox" id="filterByDomain">
-        Only capture from:
-      </label>
-      <input type="text" id="domainFilter" placeholder="http://localhost:3000" class="domain-input">
-    </div>
-
-    <div id="stepsContainer" class="steps-container">
-      <div class="empty-state">
-        <div class="empty-state-icon">📝</div>
-        <div>No steps recorded yet. Click "Start" to begin recording.</div>
+    <div class="recording-area">
+      <div class="recording-panel">
+        <div class="recording-panel-header">
+          <label class="option-toggle" style="flex-shrink:0;">
+            <input type="checkbox" id="filterByDomain">
+            UI Steps
+          </label>
+          <input type="text" id="domainFilter" placeholder="filter: http://localhost:3000" class="network-filter-input">
+        </div>
+        <div id="stepsContainer" class="steps-container">
+          <div class="empty-state">
+            <div class="empty-state-icon">📝</div>
+            <div>No steps recorded yet. Click "Start" to begin recording.</div>
+          </div>
+        </div>
+      </div>
+      <div id="panelResizer" class="panel-resizer"></div>
+      <div class="recording-panel">
+        <div class="recording-panel-header">
+          <label class="option-toggle" style="flex-shrink:0;">
+            <input type="checkbox" id="captureNetworkRequests">
+            API Requests
+          </label>
+          <input type="text" id="networkUrlFilter" placeholder="filter: /api/ or api.example.com" class="network-filter-input">
+        </div>
+        <div id="methodFilters" class="method-filters"></div>
+        <div class="network-search-bar">
+          <input type="text" id="networkSearchInput" class="network-search-input" placeholder="Search recorded URLs...">
+        </div>
+        <div id="networkContainer" class="steps-container">
+          <div class="empty-state">
+            <div class="empty-state-icon">🌐</div>
+            <div>Enable "API Requests" and start recording.</div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -877,6 +1180,42 @@
         <button id="btnConfirmError" class="btn-error" style="flex: 1;">Add Manual</button>
         <button id="btnCancelError" class="modal-cancel" style="flex: 1; margin-top: 0;">Cancel</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Network Request Detail Modal -->
+  <div id="networkDetailModal" class="modal-overlay">
+    <div class="modal network-detail-modal">
+      <div class="network-detail-header">
+        <div class="network-detail-title">
+          <span id="detailMethod" class="step-badge"></span>
+          <span id="detailStatus" class="network-status"></span>
+          <span id="detailDuration" class="network-duration"></span>
+        </div>
+        <button class="network-detail-close" id="btnCloseNetworkDetail">×</button>
+      </div>
+      <div id="detailUrl" class="network-detail-url"></div>
+      <div id="detailRequestHeaders" class="network-detail-section">
+        <div class="network-detail-section-title collapsible-title" id="headersToggle">
+          <span id="headersToggleArrow" class="collapse-arrow">▶</span> Request Headers
+        </div>
+        <div id="detailRequestHeadersContent" class="headers-table-wrap" style="display:none;"></div>
+      </div>
+      <div id="detailRequestBody" class="network-detail-section">
+        <div class="network-detail-section-title">Request Body</div>
+        <pre id="detailRequestBodyContent" class="network-detail-pre"></pre>
+      </div>
+      <div id="detailResponseBody" class="network-detail-section">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+          <span class="network-detail-section-title">Response Body</span>
+          <div style="display:flex;gap:4px;">
+            <button id="btnBeautifyResponse" class="network-detail-action-btn">Beautify</button>
+            <button id="btnCopyResponse" class="network-detail-action-btn">Copy</button>
+          </div>
+        </div>
+        <pre id="detailResponseBodyContent" class="network-detail-pre"></pre>
+      </div>
+      <button class="modal-cancel" id="btnCloseNetworkDetail2" style="margin-top:4px;">Close</button>
     </div>
   </div>
 

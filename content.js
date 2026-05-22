@@ -1,8 +1,6 @@
-// Prevent multiple injections
-if (window.__stepRecorderInjected) {
-  console.log('Step Recorder content script already loaded, skipping');
-} else {
-  window.__stepRecorderInjected = true;
+// Re-initialize on every injection to handle extension reloads.
+// DOM listener attachment is guarded by window.__stepRecorderListenersAttached to prevent duplicates.
+window.__stepRecorderInjected = true;
 
   let isRecording = false;
   let isPaused = false;
@@ -77,9 +75,8 @@ if (window.__stepRecorderInjected) {
     captureConsoleErrors = result.captureConsoleErrors || false;
     captureNetworkErrors = result.captureNetworkErrors || false;
     captureAllLogs = result.captureAllLogs || false;
-    filterByDomain = result.filterByDomain === true; // Default to false
+    filterByDomain = result.filterByDomain === true;
     domainFilterPattern = result.domainFilter || '';
-    console.log('Loaded recording settings:', { recordFocusEvents, captureConsoleErrors, captureNetworkErrors, captureAllLogs, filterByDomain, domainFilterPattern });
   });
 
   // Track last navigation to prevent duplicates
@@ -168,7 +165,6 @@ if (window.__stepRecorderInjected) {
       captureAllLogs = message.captureAllLogs || false;
       filterByDomain = message.filterByDomain !== false;
       domainFilterPattern = message.domainFilter || '';
-      console.log('Recording settings:', { recordFocusEvents, captureConsoleErrors, captureNetworkErrors, captureAllLogs, filterByDomain, domainFilterPattern });
       sendResponse({ status: 'ok' });
     }
     return true;
@@ -745,4 +741,3 @@ try {
   console.log('Step Recorder: PerformanceObserver not available');
 }
 
-} // End of injection guard

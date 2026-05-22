@@ -1,4 +1,7 @@
 let steps = [];
+let networkSteps = [];
+let hiddenMethods = new Set(JSON.parse(localStorage.getItem('srHiddenMethods') || '[]'));
+let networkSearchQuery = '';
 let isRecording = false;
 let isPaused = false;
 let recordingStartTime = null;
@@ -33,6 +36,11 @@ const captureNetworkErrors = document.getElementById('captureNetworkErrors');
 const captureAllLogs = document.getElementById('captureAllLogs');
 const filterByDomain = document.getElementById('filterByDomain');
 const domainFilter = document.getElementById('domainFilter');
+const captureNetworkRequests = document.getElementById('captureNetworkRequests');
+const networkUrlFilterInput = document.getElementById('networkUrlFilter');
+const networkContainer = document.getElementById('networkContainer');
+const methodFiltersEl = document.getElementById('methodFilters');
+const networkSearchInput = document.getElementById('networkSearchInput');
 const btnAddError = document.getElementById('btnAddError');
 const errorModal = document.getElementById('errorModal');
 const errorTypeSelect = document.getElementById('errorType');
@@ -93,7 +101,11 @@ function handlePortMessage(message) {
   } else if (message.type === 'testResponse') {
     console.log('Panel: Test response received! Connection is working.');
   } else if (message.type === 'stepRecorded' && isRecording && !isPaused) {
-    addStep(message.step);
+    if (message.step.type === 'network') {
+      addNetworkStep(message.step);
+    } else {
+      addStep(message.step);
+    }
   } else if (message.type === 'assertionCaptured' && isAssertionMode) {
     handleAssertionCaptured(message.elementData);
   } else if (message.type === 'errorCaptured') {
@@ -115,15 +127,161 @@ function handlePortMessage(message) {
 
 connectToBackground();
 
+// DevTools Network API — reliable capture without content script patching
+if (chrome.devtools && chrome.devtools.network) {
+  chrome.devtools.network.onRequestFinished.addListener((request) => {
+    if (!isRecording || isPaused || !captureNetworkRequests.checked) return;
+
+    const url = request.request.url;
+    const filter = networkUrlFilterInput.value.trim();
+    if (filter && !url.includes(filter)) return;
+
+    request.getContent((body, encoding) => {
+      const step = {
+        type: 'network',
+        timestamp: Date.now(),
+        method: request.request.method,
+        url,
+        status: request.response.status,
+        statusText: request.response.statusText,
+        requestHeaders: request.request.headers || [],
+        requestBody: request.request.postData?.text?.substring(0, 5000) || null,
+        responseBody: encoding === 'base64' ? '[binary]' : (body || '').substring(0, 100000),
+        duration: Math.round(request.time),
+        tagName: 'network',
+        selector: '',
+        text: `${request.request.method} ${url}`
+      };
+      addNetworkStep(step);
+    });
+  });
+}
+
 function addStep(step) {
   steps.push(step);
   renderSteps();
 }
 
+function addNetworkStep(step) {
+  networkSteps.push(step);
+  renderMethodFilters();
+  renderNetworkSteps();
+}
+
+const METHOD_COLORS = {
+  GET:     { color: '#1565C0', bg: '#e3f2fd' },
+  POST:    { color: '#2e7d32', bg: '#e8f5e9' },
+  PUT:     { color: '#e65100', bg: '#fff3e0' },
+  PATCH:   { color: '#6a1b9a', bg: '#f3e5f5' },
+  DELETE:  { color: '#c62828', bg: '#ffebee' },
+  OPTIONS: { color: '#546e7a', bg: '#eceff1' },
+  HEAD:    { color: '#4a148c', bg: '#f3e5f5' },
+};
+
+function methodStyle(method) {
+  const c = METHOD_COLORS[method] || { color: '#555', bg: '#eee' };
+  return `color:${c.color};background:${c.bg};border-color:${c.color};`;
+}
+
+function renderMethodFilters() {
+  const methods = [...new Set(networkSteps.map(s => s.method).filter(Boolean))].sort();
+  if (methods.length === 0) { methodFiltersEl.innerHTML = ''; return; }
+
+  methodFiltersEl.innerHTML = methods.map(m =>
+    `<button class="method-pill${hiddenMethods.has(m) ? ' off' : ''}" data-method="${m}" style="${methodStyle(m)}">${m}</button>`
+  ).join('');
+}
+
+networkSearchInput.addEventListener('input', () => {
+  networkSearchQuery = networkSearchInput.value.trim();
+  renderNetworkSteps();
+});
+
+methodFiltersEl.addEventListener('click', (e) => {
+  const btn = e.target.closest('.method-pill');
+  if (!btn) return;
+  const method = btn.dataset.method;
+  if (hiddenMethods.has(method)) {
+    hiddenMethods.delete(method);
+  } else {
+    hiddenMethods.add(method);
+  }
+  localStorage.setItem('srHiddenMethods', JSON.stringify([...hiddenMethods]));
+  renderMethodFilters();
+  renderNetworkSteps();
+});
+
+function renderNetworkSteps() {
+  if (networkSteps.length === 0) {
+    networkContainer.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-state-icon">🌐</div>
+        <div>Enable "API Requests" and start recording.</div>
+      </div>
+    `;
+    return;
+  }
+
+  const query = networkSearchQuery.toLowerCase();
+  const visible = networkSteps
+    .map((step, i) => ({ step, i }))
+    .filter(({ step }) => {
+      if (hiddenMethods.has(step.method)) return false;
+      if (query && !step.url?.toLowerCase().includes(query)) return false;
+      return true;
+    });
+
+  if (visible.length === 0) {
+    const msg = networkSearchQuery ? `No URLs match "${escapeHtml(networkSearchQuery)}"` : 'No requests match the current filter.';
+    networkContainer.innerHTML = `<div class="empty-state"><div class="empty-state-icon">🌐</div><div>${msg}</div></div>`;
+    return;
+  }
+
+  networkContainer.innerHTML = visible.map(({ step, i }, displayIdx) => {
+    const index = i;
+    const relativeTime = step.timestamp - (recordingStartTime || step.timestamp);
+    const timeStr = formatTime(relativeTime);
+    const isErr = !step.status || step.status >= 400;
+
+    const urlPath = step.url ? step.url.replace(/^https?:\/\/[^/]+/, '') || step.url : 'unknown';
+
+    let details = '';
+    if (step.requestBody) {
+      details += `<div class="network-detail-line"><span class="req-label">REQ:</span> ${escapeHtml(step.requestBody.substring(0, 120))}</div>`;
+    }
+    if (step.responseBody) {
+      details += `<div class="network-detail-line"><span class="res-label">RES:</span> ${escapeHtml(step.responseBody.substring(0, 160))}</div>`;
+    }
+
+    const mStyle = methodStyle(step.method || 'GET');
+    return `
+      <div class="step-item" style="align-items:flex-start;cursor:pointer;" data-network-index="${index}">
+        <div class="step-number network${isErr ? ' error' : ''}" style="margin-top:2px;">${displayIdx + 1}</div>
+        <div class="step-content" style="flex-direction:column;align-items:flex-start;gap:2px;">
+          <div style="display:flex;align-items:baseline;gap:5px;width:100%;flex-wrap:wrap;">
+            <span class="step-badge" style="${mStyle}">${step.method || 'GET'}</span>
+            <span class="network-url" style="word-break:break-all;">${escapeHtml(urlPath)}</span>
+            <span class="network-status${isErr ? ' error' : ''}">${step.status || '?'}</span>
+            ${step.duration ? `<span class="network-duration">${step.duration}ms</span>` : ''}
+            <span class="step-timestamp">+${timeStr}</span>
+          </div>
+          ${details}
+        </div>
+        <button class="step-delete" data-network-index="${index}" title="Delete">×</button>
+      </div>
+    `;
+  }).join('');
+
+  networkContainer.scrollTop = networkContainer.scrollHeight;
+  updateRawStepsTextarea();
+}
+
 // Generate raw text from steps
 function generateRawStepsText() {
-  if (steps.length === 0) return '';
-  return steps.map(step => generateStepText(step)).join('\n');
+  const uiText = steps.map(step => generateStepText(step)).join('\n');
+  const networkText = networkSteps.map(step => generateStepText(step)).join('\n');
+  if (uiText && networkText) return uiText + '\n\n--- API Requests ---\n' + networkText;
+  return uiText || networkText || '';
 }
 
 // Generate text for a single step
@@ -165,6 +323,14 @@ function generateStepText(step) {
     const assertType = step.assertType === 'exists' ? 'exists' :
                       step.assertType === 'visible' ? 'is visible' : 'contains text';
     return `Verify "${elementName}" ${assertType}`;
+  } else if (step.type === 'network') {
+    const urlPath = step.url ? step.url.replace(/^https?:\/\/[^/]+/, '') || step.url : 'unknown';
+    const shortPath = urlPath.length > 70 ? urlPath.substring(0, 70) + '...' : urlPath;
+    let text = `${step.method || 'GET'} ${shortPath}`;
+    if (step.status) text += ` → ${step.status}`;
+    if (step.statusText) text += ` ${step.statusText}`;
+    if (step.duration) text += ` (${step.duration}ms)`;
+    return text;
   }
   return `${step.type}: ${elementName}`;
 }
@@ -191,35 +357,28 @@ function renderSteps() {
     const timeStr = formatTime(relativeTime);
 
     const isAssert = step.type === 'assert';
-    let typeLabel = step.type.toUpperCase();
+    const isError = step.type === 'error';
+    let badgeClass = '';
+    let typeLabel = step.type;
 
     if (isAssert) {
-      const assertLabels = {
-        exists: 'ASSERT EXISTS',
-        visible: 'ASSERT VISIBLE',
-        textContains: 'ASSERT TEXT'
-      };
-      typeLabel = assertLabels[step.assertType] || 'ASSERT';
-    } else if (step.type === 'error') {
-      if (step.errorType === 'note') {
-        typeLabel = 'NOTE';
-      } else {
-        typeLabel = step.errorType === 'network' ? 'NETWORK ERROR' : 'CONSOLE ERROR';
-      }
+      badgeClass = 'assert';
+      const assertLabels = { exists: 'assert', visible: 'assert', textContains: 'assert' };
+      typeLabel = assertLabels[step.assertType] || 'assert';
+    } else if (isError) {
+      badgeClass = 'error';
+      typeLabel = step.errorType === 'note' ? 'note' : step.errorType === 'network' ? 'net err' : 'err';
     }
 
-    const isError = step.type === 'error';
     const stepText = escapeHtml(generateStepText(step));
 
     return `
       <div class="step-item" data-index="${index}">
-        <div class="step-number${isAssert ? ' assert' : ''}${isError ? ' error' : ''}">${index + 1}</div>
+        <div class="step-number${badgeClass ? ' ' + badgeClass : ''}">${index + 1}</div>
         <div class="step-content">
-          <div class="step-type${isAssert ? ' assert' : ''}${isError ? ' error' : ''}">${typeLabel}</div>
-          <div class="step-details">
-            <span class="step-text-editable" data-index="${index}" title="Click to edit">${stepText}</span>
-          </div>
-          <div class="step-timestamp">+${timeStr}</div>
+          <span class="step-badge${badgeClass ? ' ' + badgeClass : ''}">${typeLabel}</span>
+          <span class="step-text-editable step-details" data-index="${index}" title="Click to edit">${stepText}</span>
+          <span class="step-timestamp">+${timeStr}</span>
         </div>
         <button class="step-delete" data-index="${index}" title="Delete step">×</button>
       </div>
@@ -252,6 +411,86 @@ function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;
   return div.innerHTML;
+}
+
+function prettyJson(text) {
+  if (!text) return '';
+  try { return JSON.stringify(JSON.parse(text), null, 2); }
+  catch { return text; }
+}
+
+function showNetworkDetail(step) {
+  const modal = document.getElementById('networkDetailModal');
+
+  const detailMethod = document.getElementById('detailMethod');
+  detailMethod.textContent = step.method || 'GET';
+  detailMethod.style.cssText = methodStyle(step.method || 'GET');
+
+  const isErr = !step.status || step.status >= 400;
+  const detailStatus = document.getElementById('detailStatus');
+  detailStatus.textContent = `${step.status || '?'}${step.statusText ? ' ' + step.statusText : ''}`;
+  detailStatus.className = `network-status${isErr ? ' error' : ''}`;
+
+  document.getElementById('detailDuration').textContent = step.duration ? `${step.duration}ms` : '';
+  document.getElementById('detailUrl').textContent = step.url || '';
+
+  const headersSection = document.getElementById('detailRequestHeaders');
+  const headersContent = document.getElementById('detailRequestHeadersContent');
+  const headersArrow = document.getElementById('headersToggleArrow');
+  const headers = step.requestHeaders || [];
+  if (headers.length > 0) {
+    headersSection.style.display = '';
+    headersContent.style.display = 'none';
+    headersArrow.classList.remove('open');
+    headersContent.innerHTML = `<table class="headers-table"><tbody>${
+      headers.map(h => `<tr><td>${escapeHtml(h.name)}</td><td>${escapeHtml(h.value)}</td></tr>`).join('')
+    }</tbody></table>`;
+  } else {
+    headersSection.style.display = 'none';
+  }
+
+  const reqSection = document.getElementById('detailRequestBody');
+  if (step.requestBody) {
+    reqSection.style.display = '';
+    document.getElementById('detailRequestBodyContent').textContent = prettyJson(step.requestBody);
+  } else {
+    reqSection.style.display = 'none';
+  }
+
+  // Reset beautify state
+  _responseRaw = '';
+  _responseIsFormatted = false;
+  const beautyBtn = document.getElementById('btnBeautifyResponse');
+  beautyBtn.textContent = 'Beautify';
+  beautyBtn.classList.remove('active');
+
+  const resSection = document.getElementById('detailResponseBody');
+  if (step.responseBody === '[binary]') {
+    resSection.style.display = '';
+    _responseRaw = '[binary data]';
+    document.getElementById('detailResponseBodyContent').textContent = _responseRaw;
+  } else if (step.responseBody && step.responseBody.length > 0) {
+    resSection.style.display = '';
+    _responseRaw = step.responseBody;
+    // Try to auto-format; fall back to raw
+    const formatted = prettyJson(_responseRaw);
+    if (formatted !== _responseRaw) {
+      document.getElementById('detailResponseBodyContent').textContent = formatted;
+      beautyBtn.textContent = 'Raw';
+      beautyBtn.classList.add('active');
+      _responseIsFormatted = true;
+    } else {
+      document.getElementById('detailResponseBodyContent').textContent = _responseRaw;
+    }
+  } else {
+    resSection.style.display = 'none';
+  }
+
+  modal.classList.add('show');
+}
+
+function hideNetworkDetail() {
+  document.getElementById('networkDetailModal').classList.remove('show');
 }
 
 function updateStatus() {
@@ -370,15 +609,20 @@ btnStop.addEventListener('click', () => {
 btnClear.addEventListener('click', () => {
   if (confirm('Clear all recorded steps?')) {
     steps = [];
+    networkSteps = [];
     recordingStartTime = null;
+    networkSearchQuery = '';
+    networkSearchInput.value = '';
     rawStepsTextarea.value = '';
     llmStepsTextarea.value = '';
     renderSteps();
+    renderMethodFilters();
+    renderNetworkSteps();
   }
 });
 
 btnExport.addEventListener('click', () => {
-  if (steps.length === 0) {
+  if (steps.length === 0 && networkSteps.length === 0) {
     alert('No steps to export');
     return;
   }
@@ -386,7 +630,9 @@ btnExport.addEventListener('click', () => {
   const exportData = {
     timestamp: new Date().toISOString(),
     steps: steps,
-    totalSteps: steps.length
+    networkRequests: networkSteps,
+    totalSteps: steps.length,
+    totalNetworkRequests: networkSteps.length
   };
   
   const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
@@ -440,7 +686,7 @@ loadApiKey();
 
 // LLM Generation using OpenAI API
 async function generateWithLLM() {
-  if (steps.length === 0) {
+  if (steps.length === 0 && networkSteps.length === 0) {
     alert('No steps recorded. Please record some steps first.');
     return;
   }
@@ -463,8 +709,8 @@ async function generateWithLLM() {
   llmStepsTextarea.value = 'Generating...';
 
   try {
-    // Format steps for the prompt
-    const stepsDescription = steps.map((step, index) => {
+    // Format UI steps for the prompt
+    const uiDescription = steps.map((step, index) => {
       const elementName = step.text?.trim() || step.selector || 'element';
       const tag = step.tagName || '';
 
@@ -498,6 +744,21 @@ async function generateWithLLM() {
       if (step.key) desc += ` key=${step.key}`;
       return desc;
     }).join('\n');
+
+    // Format network requests
+    const networkDescription = networkSteps.map((step, index) => {
+      const urlPath = step.url ? step.url.replace(/^https?:\/\/[^/]+/, '') || step.url : '/unknown';
+      let desc = `${index + 1}. ${step.method || 'GET'} ${urlPath} → ${step.status || '?'} ${step.statusText || ''}`;
+      if (step.duration) desc += ` (${step.duration}ms)`;
+      if (step.requestBody) desc += `\n   Request: ${step.requestBody.substring(0, 200)}`;
+      if (step.responseBody) desc += `\n   Response: ${step.responseBody.substring(0, 300)}`;
+      return desc;
+    }).join('\n');
+
+    let stepsDescription = uiDescription;
+    if (networkDescription) {
+      stepsDescription += '\n\n**API Requests:**\n' + networkDescription;
+    }
 
     const hasErrors = steps.some(step => step.type === 'error');
 
@@ -681,7 +942,8 @@ Prioritized list of what to test given limited time
 Be specific and actionable.${hasErrors ? '\n\nNote: Errors were already observed during recording - factor these into the risk assessment.' : ''}`
       };
 
-    case 'playwright':
+    case 'playwright': {
+      const hasNetworkSteps = steps.some(s => s.type === 'network');
       return {
         systemMessage: 'You convert recorded steps into Playwright test code. Use modern Playwright syntax with async/await.',
         prompt: `Convert these recorded steps into a Playwright test:
@@ -694,8 +956,12 @@ Rules:
 - Include assertions for any errors or verification steps
 - Wrap in test() function
 - Be practical - use realistic selectors
-- No explanatory comments, just clean code`
+- No explanatory comments, just clean code${hasNetworkSteps ? `
+- For each **API** step, add a page.route() mock BEFORE the test actions using the recorded URL, method, status, and response body
+- Use route.fulfill() with the actual recorded response data
+- Group all page.route() calls at the top of the test` : ''}`
       };
+    }
 
     default:
       return getLLMPrompt('steps', stepsDescription, hasErrors);
@@ -802,13 +1068,15 @@ assertModal.addEventListener('click', (e) => {
   if (e.target === assertModal) hideAssertModal();
 });
 
-// Escape key to cancel assertion mode
+// Escape key to cancel assertion mode or close modals
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     if (isAssertionMode) {
       exitAssertionMode();
     } else if (assertModal.classList.contains('show')) {
       hideAssertModal();
+    } else if (document.getElementById('networkDetailModal').classList.contains('show')) {
+      hideNetworkDetail();
     }
     hideContextMenu();
   }
@@ -992,6 +1260,92 @@ errorMessageInput.addEventListener('keydown', (e) => {
   }
 });
 
+// Network container: delete or open detail view
+networkContainer.addEventListener('click', (e) => {
+  if (e.target.classList.contains('step-delete')) {
+    e.stopPropagation();
+    const index = parseInt(e.target.dataset.networkIndex, 10);
+    if (!isNaN(index) && index >= 0 && index < networkSteps.length) {
+      networkSteps.splice(index, 1);
+      renderNetworkSteps();
+    }
+    return;
+  }
+  const stepItem = e.target.closest('.step-item[data-network-index]');
+  if (stepItem) {
+    const index = parseInt(stepItem.dataset.networkIndex, 10);
+    if (!isNaN(index) && index >= 0 && index < networkSteps.length) {
+      showNetworkDetail(networkSteps[index]);
+    }
+  }
+});
+
+// Network detail modal close
+document.getElementById('btnCloseNetworkDetail').addEventListener('click', hideNetworkDetail);
+document.getElementById('btnCloseNetworkDetail2').addEventListener('click', hideNetworkDetail);
+document.getElementById('networkDetailModal').addEventListener('click', (e) => {
+  if (e.target === document.getElementById('networkDetailModal')) hideNetworkDetail();
+});
+
+// Request headers collapse toggle
+document.getElementById('headersToggle').addEventListener('click', () => {
+  const content = document.getElementById('detailRequestHeadersContent');
+  const arrow = document.getElementById('headersToggleArrow');
+  const isOpen = content.style.display !== 'none';
+  content.style.display = isOpen ? 'none' : '';
+  arrow.classList.toggle('open', !isOpen);
+});
+
+// Beautify / Raw toggle for response body
+let _responseRaw = '';
+let _responseIsFormatted = false;
+
+document.getElementById('btnBeautifyResponse').addEventListener('click', () => {
+  const btn = document.getElementById('btnBeautifyResponse');
+  const pre = document.getElementById('detailResponseBodyContent');
+  if (!_responseIsFormatted) {
+    const formatted = prettyJson(_responseRaw);
+    if (formatted !== _responseRaw) {
+      pre.textContent = formatted;
+      btn.textContent = 'Raw';
+      btn.classList.add('active');
+      _responseIsFormatted = true;
+    } else {
+      btn.textContent = 'Not JSON';
+      setTimeout(() => { btn.textContent = 'Beautify'; }, 1500);
+    }
+  } else {
+    pre.textContent = _responseRaw;
+    btn.textContent = 'Beautify';
+    btn.classList.remove('active');
+    _responseIsFormatted = false;
+  }
+});
+
+// Copy response body to clipboard
+document.getElementById('btnCopyResponse').addEventListener('click', () => {
+  const btn = document.getElementById('btnCopyResponse');
+  const text = document.getElementById('detailResponseBodyContent').textContent;
+  if (!text) return;
+  navigator.clipboard.writeText(text).then(() => {
+    btn.textContent = 'Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1500);
+  }).catch(() => {
+    // fallback
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;left:-9999px;top:0;';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    btn.textContent = 'Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1500);
+  });
+});
+
 // Hide context menu on click elsewhere
 document.addEventListener('click', (e) => {
   hideContextMenu();
@@ -1109,12 +1463,14 @@ btnCopyLLM.addEventListener('click', () => {
 // Load saved recording settings
 async function loadRecordingSettings() {
   try {
-    const result = await chrome.storage.local.get(['recordFocusEvents', 'captureConsoleErrors', 'captureNetworkErrors', 'captureAllLogs', 'filterByDomain', 'domainFilter']);
+    const result = await chrome.storage.local.get(['recordFocusEvents', 'captureConsoleErrors', 'captureNetworkErrors', 'captureAllLogs', 'captureNetworkRequests', 'networkUrlFilter', 'filterByDomain', 'domainFilter']);
     recordFocusEvents.checked = result.recordFocusEvents || false;
     captureConsoleErrors.checked = result.captureConsoleErrors || false;
     captureNetworkErrors.checked = result.captureNetworkErrors || false;
     captureAllLogs.checked = result.captureAllLogs || false;
-    filterByDomain.checked = result.filterByDomain === true; // Default to false
+    captureNetworkRequests.checked = result.captureNetworkRequests || false;
+    networkUrlFilterInput.value = result.networkUrlFilter || '';
+    filterByDomain.checked = result.filterByDomain === true;
     domainFilter.value = result.domainFilter || '';
 
     // Auto-detect domain from inspected page if not set
@@ -1183,6 +1539,9 @@ recordFocusEvents.addEventListener('change', handleRecordingSettingsChange);
 captureConsoleErrors.addEventListener('change', handleRecordingSettingsChange);
 captureNetworkErrors.addEventListener('change', handleRecordingSettingsChange);
 captureAllLogs.addEventListener('change', handleRecordingSettingsChange);
+captureNetworkRequests.addEventListener('change', handleRecordingSettingsChange);
+networkUrlFilterInput.addEventListener('change', handleRecordingSettingsChange);
+networkUrlFilterInput.addEventListener('blur', handleRecordingSettingsChange);
 filterByDomain.addEventListener('change', handleRecordingSettingsChange);
 domainFilter.addEventListener('change', handleRecordingSettingsChange);
 domainFilter.addEventListener('blur', handleRecordingSettingsChange);
@@ -1192,3 +1551,51 @@ loadRecordingSettings();
 
 // Initialize
 updateStatus();
+
+// ============ Resizable panels ============
+
+const panelResizer = document.getElementById('panelResizer');
+const leftPanel = panelResizer.previousElementSibling;
+const rightPanel = panelResizer.nextElementSibling;
+
+// Restore saved split
+const savedSplit = localStorage.getItem('srPanelSplit');
+if (savedSplit) {
+  leftPanel.style.flex = 'none';
+  leftPanel.style.width = savedSplit + '%';
+  rightPanel.style.flex = '1';
+}
+
+let isResizing = false;
+let resizeStartX = 0;
+let resizeStartWidth = 0;
+
+panelResizer.addEventListener('mousedown', (e) => {
+  isResizing = true;
+  resizeStartX = e.clientX;
+  resizeStartWidth = leftPanel.getBoundingClientRect().width;
+  panelResizer.classList.add('dragging');
+  document.body.style.cursor = 'col-resize';
+  document.body.style.userSelect = 'none';
+  e.preventDefault();
+});
+
+document.addEventListener('mousemove', (e) => {
+  if (!isResizing) return;
+  const containerWidth = panelResizer.parentElement.getBoundingClientRect().width;
+  const newWidth = Math.max(120, Math.min(containerWidth - 120, resizeStartWidth + e.clientX - resizeStartX));
+  leftPanel.style.flex = 'none';
+  leftPanel.style.width = newWidth + 'px';
+  rightPanel.style.flex = '1';
+});
+
+document.addEventListener('mouseup', () => {
+  if (!isResizing) return;
+  isResizing = false;
+  panelResizer.classList.remove('dragging');
+  document.body.style.cursor = '';
+  document.body.style.userSelect = '';
+  const containerWidth = panelResizer.parentElement.getBoundingClientRect().width;
+  const pct = (leftPanel.getBoundingClientRect().width / containerWidth * 100).toFixed(1);
+  localStorage.setItem('srPanelSplit', pct);
+});

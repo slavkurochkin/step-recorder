@@ -38,9 +38,9 @@ const filterByDomain = document.getElementById('filterByDomain');
 const domainFilter = document.getElementById('domainFilter');
 const captureNetworkRequests = document.getElementById('captureNetworkRequests');
 const networkUrlFilterInput = document.getElementById('networkUrlFilter');
-const networkContainer = document.getElementById('networkContainer');
 const methodFiltersEl = document.getElementById('methodFilters');
 const networkSearchInput = document.getElementById('networkSearchInput');
+const apiFilterBar = document.getElementById('apiFilterBar');
 const btnAddError = document.getElementById('btnAddError');
 const errorModal = document.getElementById('errorModal');
 const errorTypeSelect = document.getElementById('errorType');
@@ -48,6 +48,7 @@ const errorMessageInput = document.getElementById('errorMessage');
 
 let errorInsertAfterIndex = null; // For inserting errors after a specific step
 let capturedErrors = []; // Store recent errors for selection
+let expandedApiSteps = new Set(); // Step indices whose API rows are expanded
 const MAX_CAPTURED_ERRORS = 20;
 
 // Establish connection to background script
@@ -165,8 +166,32 @@ function addStep(step) {
 function addNetworkStep(step) {
   networkSteps.push(step);
   renderMethodFilters();
-  renderNetworkSteps();
+  renderSteps();
 }
+
+function renderMethodFilters() {
+  const methods = [...new Set(networkSteps.map(s => s.method).filter(Boolean))].sort();
+  apiFilterBar.style.display = methods.length > 0 ? '' : 'none';
+  methodFiltersEl.innerHTML = methods.map(m =>
+    `<button class="method-pill${hiddenMethods.has(m) ? ' off' : ''}" data-method="${m}" style="${methodStyle(m)}">${m}</button>`
+  ).join('');
+}
+
+methodFiltersEl.addEventListener('click', (e) => {
+  const btn = e.target.closest('.method-pill');
+  if (!btn) return;
+  const method = btn.dataset.method;
+  if (hiddenMethods.has(method)) hiddenMethods.delete(method);
+  else hiddenMethods.add(method);
+  localStorage.setItem('srHiddenMethods', JSON.stringify([...hiddenMethods]));
+  renderMethodFilters();
+  renderSteps();
+});
+
+networkSearchInput.addEventListener('input', () => {
+  networkSearchQuery = networkSearchInput.value.trim();
+  renderSteps();
+});
 
 const METHOD_COLORS = {
   GET:     { color: '#1565C0', bg: '#e3f2fd' },
@@ -183,105 +208,30 @@ function methodStyle(method) {
   return `color:${c.color};background:${c.bg};border-color:${c.color};`;
 }
 
-function renderMethodFilters() {
-  const methods = [...new Set(networkSteps.map(s => s.method).filter(Boolean))].sort();
-  if (methods.length === 0) { methodFiltersEl.innerHTML = ''; return; }
 
-  methodFiltersEl.innerHTML = methods.map(m =>
-    `<button class="method-pill${hiddenMethods.has(m) ? ' off' : ''}" data-method="${m}" style="${methodStyle(m)}">${m}</button>`
-  ).join('');
-}
-
-networkSearchInput.addEventListener('input', () => {
-  networkSearchQuery = networkSearchInput.value.trim();
-  renderNetworkSteps();
-});
-
-methodFiltersEl.addEventListener('click', (e) => {
-  const btn = e.target.closest('.method-pill');
-  if (!btn) return;
-  const method = btn.dataset.method;
-  if (hiddenMethods.has(method)) {
-    hiddenMethods.delete(method);
-  } else {
-    hiddenMethods.add(method);
-  }
-  localStorage.setItem('srHiddenMethods', JSON.stringify([...hiddenMethods]));
-  renderMethodFilters();
-  renderNetworkSteps();
-});
-
-function renderNetworkSteps() {
-  if (networkSteps.length === 0) {
-    networkContainer.innerHTML = `
-      <div class="empty-state">
-        <div class="empty-state-icon">🌐</div>
-        <div>Enable "API Requests" and start recording.</div>
-      </div>
-    `;
-    return;
-  }
-
-  const query = networkSearchQuery.toLowerCase();
-  const visible = networkSteps
-    .map((step, i) => ({ step, i }))
-    .filter(({ step }) => {
-      if (hiddenMethods.has(step.method)) return false;
-      if (query && !step.url?.toLowerCase().includes(query)) return false;
-      return true;
-    });
-
-  if (visible.length === 0) {
-    const msg = networkSearchQuery ? `No URLs match "${escapeHtml(networkSearchQuery)}"` : 'No requests match the current filter.';
-    networkContainer.innerHTML = `<div class="empty-state"><div class="empty-state-icon">🌐</div><div>${msg}</div></div>`;
-    return;
-  }
-
-  networkContainer.innerHTML = visible.map(({ step, i }, displayIdx) => {
-    const index = i;
-    const relativeTime = step.timestamp - (recordingStartTime || step.timestamp);
-    const timeStr = formatTime(relativeTime);
-    const isErr = !step.status || step.status >= 400;
-
-    const urlPath = step.url ? step.url.replace(/^https?:\/\/[^/]+/, '') || step.url : 'unknown';
-
-    let details = '';
-    if (step.requestBody) {
-      details += `<div class="network-detail-line"><span class="req-label">REQ:</span> ${escapeHtml(step.requestBody.substring(0, 120))}</div>`;
-    }
-    if (step.responseBody) {
-      details += `<div class="network-detail-line"><span class="res-label">RES:</span> ${escapeHtml(step.responseBody.substring(0, 160))}</div>`;
-    }
-
-    const mStyle = methodStyle(step.method || 'GET');
-    return `
-      <div class="step-item" style="align-items:flex-start;cursor:pointer;" data-network-index="${index}">
-        <div class="step-number network${isErr ? ' error' : ''}" style="margin-top:2px;">${displayIdx + 1}</div>
-        <div class="step-content" style="flex-direction:column;align-items:flex-start;gap:2px;">
-          <div style="display:flex;align-items:baseline;gap:5px;width:100%;flex-wrap:wrap;">
-            <span class="step-badge" style="${mStyle}">${step.method || 'GET'}</span>
-            <span class="network-url" style="word-break:break-all;">${escapeHtml(urlPath)}</span>
-            <span class="network-status${isErr ? ' error' : ''}">${step.status || '?'}</span>
-            ${step.duration ? `<span class="network-duration">${step.duration}ms</span>` : ''}
-            <span class="step-timestamp">+${timeStr}</span>
-          </div>
-          ${details}
-        </div>
-        <button class="step-delete" data-network-index="${index}" title="Delete">×</button>
-      </div>
-    `;
-  }).join('');
-
-  networkContainer.scrollTop = networkContainer.scrollHeight;
-  updateRawStepsTextarea();
-}
-
-// Generate raw text from steps
+// Generate raw text from steps, interleaving network calls under the UI step that triggered them
 function generateRawStepsText() {
-  const uiText = steps.map(step => generateStepText(step)).join('\n');
-  const networkText = networkSteps.map(step => generateStepText(step)).join('\n');
-  if (uiText && networkText) return uiText + '\n\n--- API Requests ---\n' + networkText;
-  return uiText || networkText || '';
+  if (steps.length === 0 && networkSteps.length === 0) return '';
+  if (steps.length === 0) return networkSteps.map(generateStepText).join('\n');
+  if (networkSteps.length === 0) return steps.map(generateStepText).join('\n');
+
+  const lines = [];
+
+  // Orphan network steps before first UI step
+  const firstUiTs = steps[0].timestamp;
+  networkSteps.filter(ns => ns.timestamp < firstUiTs).forEach(ns => lines.push(generateStepText(ns)));
+
+  // Each UI step followed by its triggered API calls
+  steps.forEach((step, index) => {
+    lines.push(generateStepText(step));
+    const thisTs = step.timestamp;
+    const nextTs = steps[index + 1]?.timestamp ?? Infinity;
+    networkSteps
+      .filter(ns => ns.timestamp >= thisTs && ns.timestamp < nextTs)
+      .forEach(ns => lines.push('  → ' + generateStepText(ns)));
+  });
+
+  return lines.join('\n');
 }
 
 // Generate text for a single step
@@ -325,8 +275,7 @@ function generateStepText(step) {
     return `Verify "${elementName}" ${assertType}`;
   } else if (step.type === 'network') {
     const urlPath = step.url ? step.url.replace(/^https?:\/\/[^/]+/, '') || step.url : 'unknown';
-    const shortPath = urlPath.length > 70 ? urlPath.substring(0, 70) + '...' : urlPath;
-    let text = `${step.method || 'GET'} ${shortPath}`;
+    let text = `${step.method || 'GET'} ${urlPath}`;
     if (step.status) text += ` → ${step.status}`;
     if (step.statusText) text += ` ${step.statusText}`;
     if (step.duration) text += ` (${step.duration}ms)`;
@@ -374,6 +323,43 @@ function renderSteps() {
 
     const hasAlts = step.selectorAlternatives?.length > 1;
     const currentSel = step.selector || '';
+
+    // Find network calls that happened between this UI step and the next, applying filters
+    const thisTs = step.timestamp;
+    const nextTs = steps[index + 1]?.timestamp ?? Infinity;
+    const query = networkSearchQuery.toLowerCase();
+    const relatedNet = [];
+    networkSteps.forEach((ns, ni) => {
+      if (ns.timestamp < thisTs || ns.timestamp >= nextTs) return;
+      if (hiddenMethods.has(ns.method)) return;
+      if (query && !ns.url?.toLowerCase().includes(query)) return;
+      relatedNet.push({ ns, ni });
+    });
+
+    let netRowsHtml = '';
+    if (relatedNet.length > 0) {
+      const isExpanded = expandedApiSteps.has(index);
+      const count = relatedNet.length;
+      const label = isExpanded
+        ? `▾ hide ${count} API call${count > 1 ? 's' : ''}`
+        : `▸ ${count} API call${count > 1 ? 's' : ''}`;
+      netRowsHtml = `<div class="step-api-toggle${isExpanded ? ' expanded' : ''}" data-step-index="${index}">${label}</div>`;
+      if (isExpanded) {
+        netRowsHtml += relatedNet.map(({ ns, ni }) => {
+          const urlPath = ns.url ? ns.url.replace(/^https?:\/\/[^/]+/, '') || ns.url : 'unknown';
+          const isErr = !ns.status || ns.status >= 400;
+          const mStyle = methodStyle(ns.method || 'GET');
+          return `<div class="step-api-row" data-network-index="${ni}">
+            <span class="step-api-arrow">↳</span>
+            <span class="step-badge" style="${mStyle};font-size:9px;padding:1px 4px;min-width:0;">${escapeHtml(ns.method || 'GET')}</span>
+            <span class="step-api-url">${escapeHtml(urlPath)}</span>
+            <span class="network-status${isErr ? ' error' : ''}" style="font-size:10px;">${ns.status || '?'}</span>
+            ${ns.duration ? `<span class="network-duration">${ns.duration}ms</span>` : ''}
+          </div>`;
+        }).join('');
+      }
+    }
+
     return `
       <div class="step-item" data-index="${index}"${hasAlts ? ' style="padding-right:46px;"' : ''}>
         <div class="step-number${badgeClass ? ' ' + badgeClass : ''}">${index + 1}</div>
@@ -385,6 +371,7 @@ function renderSteps() {
         ${hasAlts ? `<button class="step-selector-btn" data-index="${index}" title="Switch selector&#10;current: ${escapeHtml(currentSel)}">#</button>` : ''}
         <button class="step-delete" data-index="${index}" title="Delete step">×</button>
       </div>
+      ${netRowsHtml}
     `;
   }).join('');
 
@@ -659,11 +646,11 @@ btnClear.addEventListener('click', () => {
     recordingStartTime = null;
     networkSearchQuery = '';
     networkSearchInput.value = '';
+    expandedApiSteps.clear();
     rawStepsTextarea.value = '';
     llmStepsTextarea.value = '';
-    renderSteps();
     renderMethodFilters();
-    renderNetworkSteps();
+    renderSteps();
   }
 });
 
@@ -1308,26 +1295,6 @@ errorMessageInput.addEventListener('keydown', (e) => {
   }
 });
 
-// Network container: delete or open detail view
-networkContainer.addEventListener('click', (e) => {
-  if (e.target.classList.contains('step-delete')) {
-    e.stopPropagation();
-    const index = parseInt(e.target.dataset.networkIndex, 10);
-    if (!isNaN(index) && index >= 0 && index < networkSteps.length) {
-      networkSteps.splice(index, 1);
-      renderNetworkSteps();
-    }
-    return;
-  }
-  const stepItem = e.target.closest('.step-item[data-network-index]');
-  if (stepItem) {
-    const index = parseInt(stepItem.dataset.networkIndex, 10);
-    if (!isNaN(index) && index >= 0 && index < networkSteps.length) {
-      showNetworkDetail(networkSteps[index]);
-    }
-  }
-});
-
 // Network detail modal close
 document.getElementById('btnCloseNetworkDetail').addEventListener('click', hideNetworkDetail);
 document.getElementById('btnCloseNetworkDetail2').addEventListener('click', hideNetworkDetail);
@@ -1404,6 +1371,26 @@ document.addEventListener('click', (e) => {
 
 // Delete / selector-picker button clicks on steps
 stepsContainer.addEventListener('click', (e) => {
+  // Toggle collapsed API rows
+  const apiToggle = e.target.closest('.step-api-toggle');
+  if (apiToggle) {
+    const idx = parseInt(apiToggle.dataset.stepIndex, 10);
+    if (expandedApiSteps.has(idx)) expandedApiSteps.delete(idx);
+    else expandedApiSteps.add(idx);
+    renderSteps();
+    return;
+  }
+
+  // Click on an inline API row → open network detail modal
+  const apiRow = e.target.closest('.step-api-row');
+  if (apiRow) {
+    const ni = parseInt(apiRow.dataset.networkIndex, 10);
+    if (!isNaN(ni) && ni >= 0 && ni < networkSteps.length) {
+      showNetworkDetail(networkSteps[ni]);
+    }
+    return;
+  }
+
   if (e.target.classList.contains('step-selector-btn')) {
     e.stopPropagation();
     const index = parseInt(e.target.dataset.index, 10);
@@ -1610,50 +1597,3 @@ loadRecordingSettings();
 // Initialize
 updateStatus();
 
-// ============ Resizable panels ============
-
-const panelResizer = document.getElementById('panelResizer');
-const leftPanel = panelResizer.previousElementSibling;
-const rightPanel = panelResizer.nextElementSibling;
-
-// Restore saved split
-const savedSplit = localStorage.getItem('srPanelSplit');
-if (savedSplit) {
-  leftPanel.style.flex = 'none';
-  leftPanel.style.width = savedSplit + '%';
-  rightPanel.style.flex = '1';
-}
-
-let isResizing = false;
-let resizeStartX = 0;
-let resizeStartWidth = 0;
-
-panelResizer.addEventListener('mousedown', (e) => {
-  isResizing = true;
-  resizeStartX = e.clientX;
-  resizeStartWidth = leftPanel.getBoundingClientRect().width;
-  panelResizer.classList.add('dragging');
-  document.body.style.cursor = 'col-resize';
-  document.body.style.userSelect = 'none';
-  e.preventDefault();
-});
-
-document.addEventListener('mousemove', (e) => {
-  if (!isResizing) return;
-  const containerWidth = panelResizer.parentElement.getBoundingClientRect().width;
-  const newWidth = Math.max(120, Math.min(containerWidth - 120, resizeStartWidth + e.clientX - resizeStartX));
-  leftPanel.style.flex = 'none';
-  leftPanel.style.width = newWidth + 'px';
-  rightPanel.style.flex = '1';
-});
-
-document.addEventListener('mouseup', () => {
-  if (!isResizing) return;
-  isResizing = false;
-  panelResizer.classList.remove('dragging');
-  document.body.style.cursor = '';
-  document.body.style.userSelect = '';
-  const containerWidth = panelResizer.parentElement.getBoundingClientRect().width;
-  const pct = (leftPanel.getBoundingClientRect().width / containerWidth * 100).toFixed(1);
-  localStorage.setItem('srPanelSplit', pct);
-});

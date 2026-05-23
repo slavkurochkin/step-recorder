@@ -60,7 +60,7 @@ function connectToBackground() {
   try {
     port = chrome.runtime.connect({ name: 'devtools-panel' });
   } catch (e) {
-    console.error('Panel: Failed to connect:', e);
+    console.log('Panel: Failed to connect (extension context invalidated):', e.message);
     return;
   }
 
@@ -78,7 +78,7 @@ function connectToBackground() {
       console.log(`Panel: Reconnecting in ${delay}ms (attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
       setTimeout(connectToBackground, delay);
     } else {
-      console.error('Panel: Max reconnection attempts reached. Please reload DevTools.');
+      console.log('Panel: Max reconnection attempts reached. Please reload DevTools.');
     }
   });
 
@@ -590,14 +590,6 @@ btnStart.addEventListener('click', () => {
       filterByDomain: filterByDomain.checked,
       domainFilter: domainFilter.value.trim()
     }
-  });
-
-  // Also try direct broadcast as fallback
-  chrome.runtime.sendMessage({
-    type: 'broadcastToContent',
-    message: { type: 'startRecording' }
-  }).catch(err => {
-    console.log('Direct message failed:', err);
   });
 });
 

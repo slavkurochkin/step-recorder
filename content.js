@@ -1,5 +1,7 @@
 // Re-initialize on every injection to handle extension reloads.
+// Wrapped in IIFE so let/const declarations don't clash across re-injections.
 // DOM listener attachment is guarded by window.__stepRecorderListenersAttached to prevent duplicates.
+(function() {
 window.__stepRecorderInjected = true;
 
   let isRecording = false;
@@ -47,8 +49,9 @@ window.__stepRecorderInjected = true;
           eventListenersAttached = true;
         }
 
-        // Record page load/redirect if this is a new page
-        if (isNewPageLoad) {
+        // Record page load/redirect if this is a new page (guard prevents duplicates across multiple injections)
+        if (isNewPageLoad && !window.__stepRecorderPageloadSent) {
+          window.__stepRecorderPageloadSent = true;
           chrome.runtime.sendMessage({
             type: 'stepRecorded',
             step: {
@@ -584,6 +587,10 @@ function sendErrorToPanel(errorType, message, url = '') {
   }).catch(() => {});
 }
 
+// Patch globals only once — re-injection would create a chain of wrappers otherwise
+if (!window.__stepRecorderPatched) {
+  window.__stepRecorderPatched = true;
+
 // Capture console.error
 const originalConsoleError = console.error;
 console.error = function(...args) {
@@ -778,4 +785,7 @@ try {
   // PerformanceObserver not supported or no permission
   console.log('Step Recorder: PerformanceObserver not available');
 }
+
+} // end __stepRecorderPatched guard
+})(); // end IIFE
 

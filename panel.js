@@ -160,7 +160,7 @@ if (chrome.devtools && chrome.devtools.network) {
 
 function addStep(step) {
   steps.push(step);
-  renderSteps();
+  renderSteps(true);
 }
 
 function addNetworkStep(step) {
@@ -289,7 +289,7 @@ function updateRawStepsTextarea() {
   rawStepsTextarea.value = generateRawStepsText();
 }
 
-function renderSteps() {
+function renderSteps(scrollToBottom = false) {
   if (steps.length === 0) {
     stepsContainer.innerHTML = `
       <div class="empty-state">
@@ -375,8 +375,7 @@ function renderSteps() {
     `;
   }).join('');
 
-  // Scroll to bottom
-  stepsContainer.scrollTop = stepsContainer.scrollHeight;
+  if (scrollToBottom) stepsContainer.scrollTop = stepsContainer.scrollHeight;
 
   // Update raw steps textarea
   updateRawStepsTextarea();

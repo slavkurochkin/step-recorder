@@ -410,8 +410,17 @@ function prettyJson(text) {
   catch { return text; }
 }
 
+let _currentNetworkStep = null;
+
 function showNetworkDetail(step) {
+  _currentNetworkStep = step;
   const modal = document.getElementById('networkDetailModal');
+
+  // Reset AI output
+  document.getElementById('aiMockOutput').style.display = 'none';
+  document.getElementById('aiMockOutputPre').textContent = '';
+  document.getElementById('btnGenerateMock').textContent = 'Generate';
+  document.getElementById('btnGenerateMock').disabled = false;
 
   const detailMethod = document.getElementById('detailMethod');
   detailMethod.textContent = step.method || 'GET';
@@ -1331,6 +1340,131 @@ document.getElementById('btnCloseNetworkDetail').addEventListener('click', hideN
 document.getElementById('btnCloseNetworkDetail2').addEventListener('click', hideNetworkDetail);
 document.getElementById('networkDetailModal').addEventListener('click', (e) => {
   if (e.target === document.getElementById('networkDetailModal')) hideNetworkDetail();
+});
+
+// ============ AI Mock Generation ============
+
+const AI_MOCK_PROMPTS = {
+  'playwright-mock': (step, urlPath) => `Generate a single Playwright page.route() mock for this request. Return ONLY the code — no markdown fences, no explanation.
+
+Method: ${step.method}
+URL: ${step.url}
+Status: ${step.status}${step.statusText ? ' ' + step.statusText : ''}
+${step.requestBody ? `Request Body:\n${step.requestBody.substring(0, 600)}\n` : ''}${step.responseBody && step.responseBody !== '[binary]' ? `Response Body:\n${step.responseBody.substring(0, 3000)}` : ''}
+
+Use route.fulfill() with the actual status and response data. Match on the URL path pattern "${urlPath}".`,
+
+  'playwright-abort': (step, urlPath) => `Generate a Playwright page.route() that aborts this request. Return ONLY the code — no markdown fences, no explanation.
+
+Method: ${step.method}
+URL: ${step.url}
+
+Use route.abort() and match on the URL path pattern "${urlPath}".`,
+
+  'msw': (step, urlPath) => `Generate an MSW (Mock Service Worker) v2 handler for this request. Return ONLY the code — no markdown fences, no explanation.
+
+Method: ${step.method}
+URL: ${step.url}
+Status: ${step.status}${step.statusText ? ' ' + step.statusText : ''}
+${step.requestBody ? `Request Body:\n${step.requestBody.substring(0, 600)}\n` : ''}${step.responseBody && step.responseBody !== '[binary]' ? `Response Body:\n${step.responseBody.substring(0, 3000)}` : ''}
+
+Use http.${step.method.toLowerCase()}() with HttpResponse and the actual response data.`,
+
+  'cy-intercept': (step, urlPath) => `Generate a Cypress cy.intercept() stub for this request. Return ONLY the code — no markdown fences, no explanation.
+
+Method: ${step.method}
+URL: ${step.url}
+Status: ${step.status}${step.statusText ? ' ' + step.statusText : ''}
+${step.requestBody ? `Request Body:\n${step.requestBody.substring(0, 600)}\n` : ''}${step.responseBody && step.responseBody !== '[binary]' ? `Response Body:\n${step.responseBody.substring(0, 3000)}` : ''}
+
+Use cy.intercept() with { statusCode, body } and the actual response data. Match on method "${step.method}" and URL path pattern "${urlPath}".`
+};
+
+document.getElementById('btnGenerateMock').addEventListener('click', async () => {
+  const step = _currentNetworkStep;
+  if (!step) return;
+
+  const result = await chrome.storage.local.get(['openaiApiKey']);
+  const apiKey = result.openaiApiKey;
+  if (!apiKey) {
+    alert('Please set your OpenAI API key in Settings first.');
+    return;
+  }
+
+  const mode = document.getElementById('aiMockMode').value;
+  const urlPath = step.url ? step.url.replace(/^https?:\/\/[^/]+/, '') || step.url : '/unknown';
+  const promptFn = AI_MOCK_PROMPTS[mode];
+  if (!promptFn) return;
+
+  const btn = document.getElementById('btnGenerateMock');
+  const outputEl = document.getElementById('aiMockOutput');
+  const outputPre = document.getElementById('aiMockOutputPre');
+
+  btn.textContent = '…';
+  btn.disabled = true;
+  outputPre.textContent = '';
+  outputEl.style.display = 'none';
+
+  try {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: 'You are a test automation expert. Output only raw code with no markdown code fences, no language tags, and no explanation.' },
+          { role: 'user', content: promptFn(step, urlPath) }
+        ],
+        temperature: 0.1,
+        max_tokens: 800
+      })
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error?.message || `API ${response.status}`);
+    }
+
+    const data = await response.json();
+    let code = data.choices[0].message.content
+      .replace(/^```(?:javascript|typescript|js|ts|python)?\n?/i, '')
+      .replace(/\n?```$/i, '')
+      .trim();
+
+    outputPre.textContent = code;
+    outputEl.style.display = '';
+  } catch (err) {
+    outputPre.textContent = `Error: ${err.message}`;
+    outputEl.style.display = '';
+  } finally {
+    btn.textContent = 'Generate';
+    btn.disabled = false;
+  }
+});
+
+document.getElementById('btnCopyMock').addEventListener('click', () => {
+  const text = document.getElementById('aiMockOutputPre').textContent;
+  if (!text) return;
+  const btn = document.getElementById('btnCopyMock');
+  navigator.clipboard.writeText(text).then(() => {
+    btn.textContent = 'Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1500);
+  }).catch(() => {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;left:-9999px;top:0;';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    btn.textContent = 'Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1500);
+  });
 });
 
 // Request headers collapse toggle

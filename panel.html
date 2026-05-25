@@ -924,12 +924,75 @@
       font-weight: 600;
     }
 
+    /* Network detail modal */
     .network-detail-modal {
       min-width: 380px;
       max-width: min(680px, 95vw);
-      max-height: 80vh;
+      max-height: 85vh;
       overflow-y: auto;
       width: 90%;
+    }
+
+    /* AI mock section inside modal */
+    .ai-mock-section {
+      margin-top: 12px;
+      padding-top: 10px;
+      border-top: 1px solid #e8e8e8;
+    }
+
+    .ai-mock-bar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .ai-mock-label {
+      font-size: 10px;
+      font-weight: 700;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      flex-shrink: 0;
+    }
+
+    .ai-mock-select {
+      flex: 1;
+      padding: 3px 6px;
+      border: 1px solid #ddd;
+      border-radius: 3px;
+      font-size: 11px;
+      background: white;
+      cursor: pointer;
+      min-width: 0;
+    }
+
+    .ai-mock-select:focus { outline: none; border-color: #9C27B0; }
+
+    .ai-mock-output {
+      margin-top: 8px;
+    }
+
+    .ai-mock-output pre {
+      font-family: 'Monaco', 'Menlo', monospace;
+      font-size: 11px;
+      background: #f0f4ff;
+      border: 1px solid #c5cae9;
+      padding: 10px;
+      border-radius: 4px;
+      overflow-x: auto;
+      max-height: 300px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+      color: #1a237e;
+      margin: 0;
+      line-height: 1.5;
+    }
+
+    .ai-mock-footer {
+      display: flex;
+      justify-content: flex-end;
+      margin-top: 4px;
     }
 
     .network-detail-header {
@@ -980,7 +1043,7 @@
       padding: 10px;
       border-radius: 4px;
       overflow-x: auto;
-      max-height: 260px;
+      max-height: 320px;
       overflow-y: auto;
       white-space: pre-wrap;
       word-break: break-all;
@@ -1310,6 +1373,26 @@
           </div>
         </div>
         <pre id="detailResponseBodyContent" class="network-detail-pre"></pre>
+      </div>
+
+      <!-- AI mock generation -->
+      <div class="ai-mock-section">
+        <div class="ai-mock-bar">
+          <span class="ai-mock-label">🤖 Generate</span>
+          <select id="aiMockMode" class="ai-mock-select">
+            <option value="playwright-mock">Playwright mock</option>
+            <option value="playwright-abort">Playwright abort</option>
+            <option value="msw">MSW handler</option>
+            <option value="cy-intercept">Cypress intercept</option>
+          </select>
+          <button id="btnGenerateMock" class="network-detail-action-btn">Generate</button>
+        </div>
+        <div id="aiMockOutput" class="ai-mock-output" style="display:none;">
+          <pre id="aiMockOutputPre"></pre>
+          <div class="ai-mock-footer">
+            <button id="btnCopyMock" class="network-detail-action-btn">Copy</button>
+          </div>
+        </div>
       </div>
       <button class="modal-cancel" id="btnCloseNetworkDetail2" style="margin-top:4px;">Close</button>
     </div>

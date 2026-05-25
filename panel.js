@@ -211,22 +211,24 @@ function methodStyle(method) {
 
 // Generate raw text from steps, interleaving network calls under the UI step that triggered them
 function generateRawStepsText() {
-  if (steps.length === 0 && networkSteps.length === 0) return '';
-  if (steps.length === 0) return networkSteps.map(generateStepText).join('\n');
-  if (networkSteps.length === 0) return steps.map(generateStepText).join('\n');
+  const visibleNetworkSteps = networkSteps.filter(ns => !hiddenMethods.has(ns.method));
+
+  if (steps.length === 0 && visibleNetworkSteps.length === 0) return '';
+  if (steps.length === 0) return visibleNetworkSteps.map(generateStepText).join('\n');
+  if (visibleNetworkSteps.length === 0) return steps.map(generateStepText).join('\n');
 
   const lines = [];
 
   // Orphan network steps before first UI step
   const firstUiTs = steps[0].timestamp;
-  networkSteps.filter(ns => ns.timestamp < firstUiTs).forEach(ns => lines.push(generateStepText(ns)));
+  visibleNetworkSteps.filter(ns => ns.timestamp < firstUiTs).forEach(ns => lines.push(generateStepText(ns)));
 
   // Each UI step followed by its triggered API calls
   steps.forEach((step, index) => {
     lines.push(generateStepText(step));
     const thisTs = step.timestamp;
     const nextTs = steps[index + 1]?.timestamp ?? Infinity;
-    networkSteps
+    visibleNetworkSteps
       .filter(ns => ns.timestamp >= thisTs && ns.timestamp < nextTs)
       .forEach(ns => lines.push('  → ' + generateStepText(ns)));
   });
@@ -321,7 +323,7 @@ function renderSteps(scrollToBottom = false) {
 
     const stepText = escapeHtml(generateStepText(step));
 
-    const hasAlts = step.selectorAlternatives?.length > 1;
+    const hasAlts = step.selectorAlternatives?.length > 0;
     const currentSel = step.selector || '';
 
     // Find network calls that happened between this UI step and the next, applying filters

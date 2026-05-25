@@ -492,14 +492,29 @@ function showSelectorPicker(stepIndex, btnEl) {
   if (!step?.selectorAlternatives?.length) return;
 
   _pickerStepIndex = stepIndex;
+
+  const isUsingText = !!step.text && !step.customText;
+  const savedText = step._originalText;
+
+  const altRows = step.selectorAlternatives.map((alt, i) =>
+    `<div class="selector-option${!isUsingText && alt.selector === step.selector ? ' active' : ''}" data-picker-idx="${i}">
+      <span class="selector-option-label">${escapeHtml(alt.label)}</span>
+      <span class="selector-option-value">${escapeHtml(alt.selector)}</span>
+    </div>`
+  ).join('');
+
+  // Offer "text content" as an option if there's saved or current text to restore/keep
+  const textValue = isUsingText ? step.text : savedText;
+  const textRow = textValue
+    ? `<div class="selector-option${isUsingText ? ' active' : ''}" data-picker-text="1">
+        <span class="selector-option-label">text content</span>
+        <span class="selector-option-value">${escapeHtml(textValue)}</span>
+      </div>`
+    : '';
+
   selectorPicker.innerHTML =
     `<div class="selector-picker-title">Choose Selector</div>` +
-    step.selectorAlternatives.map((alt, i) =>
-      `<div class="selector-option${alt.selector === step.selector ? ' active' : ''}" data-picker-idx="${i}">
-        <span class="selector-option-label">${escapeHtml(alt.label)}</span>
-        <span class="selector-option-value">${escapeHtml(alt.selector)}</span>
-      </div>`
-    ).join('');
+    textRow + altRows;
 
   const rect = btnEl.getBoundingClientRect();
   const left = Math.min(rect.left, window.innerWidth - 470);
@@ -514,12 +529,35 @@ function hideSelectorPicker() {
 }
 
 selectorPicker.addEventListener('click', (e) => {
+  e.stopPropagation();
   const option = e.target.closest('.selector-option');
   if (!option || _pickerStepIndex === null) return;
-  const idx = parseInt(option.dataset.pickerIdx, 10);
   const step = steps[_pickerStepIndex];
-  if (step && step.selectorAlternatives?.[idx]) {
-    step.selector = step.selectorAlternatives[idx].selector;
+  if (!step) { hideSelectorPicker(); return; }
+
+  if (option.dataset.pickerText) {
+    // Restore text content as element name
+    const textToRestore = step._originalText || step.text;
+    if (textToRestore) {
+      step.text = textToRestore;
+      delete step._originalText;
+      renderSteps();
+    }
+    hideSelectorPicker();
+    return;
+  }
+
+  const idx = parseInt(option.dataset.pickerIdx, 10);
+  if (step.selectorAlternatives?.[idx]) {
+    const chosen = step.selectorAlternatives[idx];
+    const changed = chosen.selector !== step.selector;
+    step.selector = chosen.selector;
+    // When switching away from text-based display, save the text and clear it
+    // so the chosen selector becomes the visible element name in the step row.
+    if (changed && step.text && !step.customText) {
+      step._originalText = step.text;
+      step.text = '';
+    }
     renderSteps();
   }
   hideSelectorPicker();

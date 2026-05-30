@@ -1351,7 +1351,10 @@
           <span id="detailStatus" class="network-status"></span>
           <span id="detailDuration" class="network-duration"></span>
         </div>
-        <button class="network-detail-close" id="btnCloseNetworkDetail">×</button>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <button id="btnHighlightOnPage" class="network-detail-action-btn" title="Highlight page elements whose text matches this response">🔍 Highlight</button>
+          <button class="network-detail-close" id="btnCloseNetworkDetail">×</button>
+        </div>
       </div>
       <div id="detailUrl" class="network-detail-url"></div>
       <div id="detailRequestHeaders" class="network-detail-section">

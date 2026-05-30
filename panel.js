@@ -422,6 +422,11 @@ function showNetworkDetail(step) {
   document.getElementById('btnGenerateMock').textContent = 'Generate';
   document.getElementById('btnGenerateMock').disabled = false;
 
+  // Reset highlight button
+  const hlBtn = document.getElementById('btnHighlightOnPage');
+  hlBtn.textContent = '🔍 Highlight';
+  hlBtn.classList.remove('active');
+
   const detailMethod = document.getElementById('detailMethod');
   detailMethod.textContent = step.method || 'GET';
   detailMethod.style.cssText = methodStyle(step.method || 'GET');
@@ -491,6 +496,13 @@ function showNetworkDetail(step) {
 
 function hideNetworkDetail() {
   document.getElementById('networkDetailModal').classList.remove('show');
+  sendClearHighlights();
+}
+
+function sendClearHighlights() {
+  let tabId = null;
+  try { tabId = chrome.devtools?.inspectedWindow?.tabId; } catch(e) {}
+  if (tabId) port.postMessage({ type: 'broadcastToContent', tabId, message: { type: 'clearHighlights' } });
 }
 
 // ============ Selector Picker ============
@@ -1340,6 +1352,58 @@ document.getElementById('btnCloseNetworkDetail').addEventListener('click', hideN
 document.getElementById('btnCloseNetworkDetail2').addEventListener('click', hideNetworkDetail);
 document.getElementById('networkDetailModal').addEventListener('click', (e) => {
   if (e.target === document.getElementById('networkDetailModal')) hideNetworkDetail();
+});
+
+// ============ Highlight on Page ============
+
+document.getElementById('btnHighlightOnPage').addEventListener('click', () => {
+  const step = _currentNetworkStep;
+  const btn = document.getElementById('btnHighlightOnPage');
+
+  // Toggle off if already highlighted
+  if (btn.classList.contains('active')) {
+    sendClearHighlights();
+    btn.textContent = '🔍 Highlight';
+    btn.classList.remove('active');
+    return;
+  }
+
+  if (!step?.responseBody || step.responseBody === '[binary]') {
+    btn.textContent = '🔍 No data';
+    setTimeout(() => { btn.textContent = '🔍 Highlight'; }, 1500);
+    return;
+  }
+
+  let tabId = null;
+  try { tabId = chrome.devtools?.inspectedWindow?.tabId; } catch(e) {}
+  if (!tabId) return;
+
+  btn.textContent = '🔍 …';
+  btn.disabled = true;
+
+  port.postMessage({
+    type: 'broadcastToContent',
+    tabId,
+    message: { type: 'highlightResponseData', responseBody: step.responseBody }
+  });
+
+  // Read back the match count from the page after content script runs
+  setTimeout(() => {
+    chrome.devtools.inspectedWindow.eval(
+      'document.querySelectorAll(".__sr-highlight").length',
+      (count, err) => {
+        btn.disabled = false;
+        if (err || count === 0) {
+          btn.textContent = '🔍 No matches';
+          btn.classList.remove('active');
+          setTimeout(() => { btn.textContent = '🔍 Highlight'; }, 1800);
+        } else {
+          btn.textContent = `🔍 ${count} found`;
+          btn.classList.add('active');
+        }
+      }
+    );
+  }, 350);
 });
 
 // ============ AI Mock Generation ============

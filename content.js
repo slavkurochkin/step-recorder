@@ -169,9 +169,116 @@ window.__stepRecorderInjected = true;
       filterByDomain = message.filterByDomain !== false;
       domainFilterPattern = message.domainFilter || '';
       sendResponse({ status: 'ok' });
+    } else if (message.type === 'highlightResponseData') {
+      highlightResponseData(message.responseBody);
+      sendResponse({ status: 'ok' });
+    } else if (message.type === 'clearHighlights') {
+      clearResponseHighlights();
+      sendResponse({ status: 'ok' });
     }
     return true;
   });
+
+  // ============ Response Data Highlighting ============
+
+  function extractResponseValues(responseBody) {
+    const values = new Set();
+    if (!responseBody || responseBody === '[binary]') return values;
+
+    let parsed;
+    try { parsed = JSON.parse(responseBody); } catch { return values; }
+
+    const SKIP = new Set(['true', 'false', 'null', 'undefined', 'none', 'n/a']);
+
+    function walk(obj, depth) {
+      if (depth > 12 || values.size > 300) return;
+      if (typeof obj === 'string') {
+        const t = obj.trim();
+        if (t.length >= 4 && !SKIP.has(t.toLowerCase())) values.add(t);
+      } else if (typeof obj === 'number' && isFinite(obj)) {
+        const s = String(obj);
+        if (s.length >= 2) values.add(s);
+      } else if (Array.isArray(obj)) {
+        obj.forEach(v => walk(v, depth + 1));
+      } else if (obj && typeof obj === 'object') {
+        Object.values(obj).forEach(v => walk(v, depth + 1));
+      }
+    }
+    walk(parsed, 0);
+    return values;
+  }
+
+  function highlightResponseData(responseBody) {
+    clearResponseHighlights();
+
+    const values = extractResponseValues(responseBody);
+    if (values.size === 0) return;
+
+    // Inject highlight styles once
+    if (!document.getElementById('__srHighlightStyle')) {
+      const style = document.createElement('style');
+      style.id = '__srHighlightStyle';
+      style.textContent = `
+        .__sr-highlight {
+          outline: 2px solid #00897B !important;
+          background-color: rgba(0, 137, 123, 0.08) !important;
+          border-radius: 2px;
+        }
+      `;
+      document.head.appendChild(style);
+    }
+
+    const highlighted = new Set();
+    const SKIP_TAGS = new Set(['script', 'style', 'noscript', 'meta', 'head', 'svg', 'path']);
+    // Inline wrappers — bubble up one level for a better target
+    const INLINE = new Set(['span', 'em', 'strong', 'b', 'i', 'small', 'mark', 'u', 'abbr', 'cite']);
+
+    const walker = document.createTreeWalker(
+      document.body,
+      NodeFilter.SHOW_TEXT,
+      {
+        acceptNode(node) {
+          const parent = node.parentElement;
+          if (!parent) return NodeFilter.FILTER_REJECT;
+          if (SKIP_TAGS.has(parent.tagName.toLowerCase())) return NodeFilter.FILTER_REJECT;
+          // Skip invisible nodes
+          const cs = window.getComputedStyle(parent);
+          if (cs.display === 'none' || cs.visibility === 'hidden' || cs.opacity === '0') return NodeFilter.FILTER_SKIP;
+          return NodeFilter.FILTER_ACCEPT;
+        }
+      }
+    );
+
+    let node;
+    while ((node = walker.nextNode())) {
+      const text = node.textContent.trim();
+      if (!text) continue;
+
+      let matched = false;
+      for (const val of values) {
+        if (text === val || text.includes(val)) { matched = true; break; }
+      }
+      if (!matched) continue;
+
+      // Find best element to outline: bubble past pure inline wrappers
+      let el = node.parentElement;
+      for (let i = 0; i < 3 && el && el !== document.body; i++) {
+        const tag = el.tagName.toLowerCase();
+        if (!INLINE.has(tag)) break;
+        if (el.parentElement && el.parentElement !== document.body) el = el.parentElement;
+        else break;
+      }
+
+      if (el && el !== document.body && !highlighted.has(el)) {
+        el.classList.add('__sr-highlight');
+        highlighted.add(el);
+      }
+    }
+  }
+
+  function clearResponseHighlights() {
+    document.querySelectorAll('.__sr-highlight').forEach(el => el.classList.remove('__sr-highlight'));
+  }
 
   // Store references for event handlers so we can access isRecording/isPaused
   window.__stepRecorderState = {

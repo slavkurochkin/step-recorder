@@ -161,6 +161,12 @@ window.__stepRecorderInjected = true;
     } else if (message.type === 'exitAssertionMode') {
       exitAssertionMode();
       sendResponse({ status: 'normal' });
+    } else if (message.type === 'enterScreenshotMode') {
+      enterScreenshotMode();
+      sendResponse({ status: 'screenshotMode' });
+    } else if (message.type === 'exitScreenshotMode') {
+      exitScreenshotMode();
+      sendResponse({ status: 'normal' });
     } else if (message.type === 'setRecordingSettings') {
       recordFocusEvents = message.recordFocus || false;
       captureConsoleErrors = message.captureConsole;
@@ -375,6 +381,105 @@ window.__stepRecorderInjected = true;
     document.removeEventListener('click', handleAssertionClick, true);
     if (document.body) document.body.style.cursor = '';
     console.log('Exited assertion mode');
+  }
+
+  // ============ Screenshot Selection Mode ============
+
+  let isScreenshotMode = false;
+  let screenshotDimOverlay = null;
+  let screenshotSelectionBox = null;
+  let screenshotSelectionStart = null;
+
+  function enterScreenshotMode() {
+    isScreenshotMode = true;
+
+    screenshotDimOverlay = document.createElement('div');
+    screenshotDimOverlay.id = '__step-recorder-screenshot-overlay';
+    screenshotDimOverlay.style.cssText = `
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: rgba(0,0,0,0.35);
+      z-index: 2147483645;
+      cursor: crosshair;
+      user-select: none;
+    `;
+
+    screenshotSelectionBox = document.createElement('div');
+    screenshotSelectionBox.id = '__step-recorder-selection-box';
+    screenshotSelectionBox.style.cssText = `
+      position: fixed;
+      border: 2px solid #2196F3;
+      background: rgba(33,150,243,0.15);
+      display: none;
+      pointer-events: none;
+      z-index: 2147483646;
+      box-sizing: border-box;
+    `;
+
+    document.body.appendChild(screenshotDimOverlay);
+    document.body.appendChild(screenshotSelectionBox);
+
+    screenshotDimOverlay.addEventListener('mousedown', handleSelectionMousedown);
+    document.addEventListener('mousemove', handleSelectionMousemove, true);
+    document.addEventListener('mouseup', handleSelectionMouseup, true);
+    document.addEventListener('keydown', handleScreenshotKeydown, true);
+  }
+
+  function exitScreenshotMode() {
+    isScreenshotMode = false;
+    screenshotSelectionStart = null;
+    if (screenshotDimOverlay) { screenshotDimOverlay.remove(); screenshotDimOverlay = null; }
+    if (screenshotSelectionBox) { screenshotSelectionBox.remove(); screenshotSelectionBox = null; }
+    document.removeEventListener('mousemove', handleSelectionMousemove, true);
+    document.removeEventListener('mouseup', handleSelectionMouseup, true);
+    document.removeEventListener('keydown', handleScreenshotKeydown, true);
+  }
+
+  function handleSelectionMousedown(e) {
+    e.preventDefault();
+    screenshotSelectionStart = { x: e.clientX, y: e.clientY };
+    screenshotSelectionBox.style.left = e.clientX + 'px';
+    screenshotSelectionBox.style.top = e.clientY + 'px';
+    screenshotSelectionBox.style.width = '0';
+    screenshotSelectionBox.style.height = '0';
+    screenshotSelectionBox.style.display = 'block';
+  }
+
+  function handleSelectionMousemove(e) {
+    if (!screenshotSelectionStart || !screenshotSelectionBox) return;
+    const x = Math.min(e.clientX, screenshotSelectionStart.x);
+    const y = Math.min(e.clientY, screenshotSelectionStart.y);
+    const w = Math.abs(e.clientX - screenshotSelectionStart.x);
+    const h = Math.abs(e.clientY - screenshotSelectionStart.y);
+    screenshotSelectionBox.style.left = x + 'px';
+    screenshotSelectionBox.style.top = y + 'px';
+    screenshotSelectionBox.style.width = w + 'px';
+    screenshotSelectionBox.style.height = h + 'px';
+  }
+
+  function handleSelectionMouseup(e) {
+    if (!screenshotSelectionStart) return;
+    const x = Math.min(e.clientX, screenshotSelectionStart.x);
+    const y = Math.min(e.clientY, screenshotSelectionStart.y);
+    const w = Math.abs(e.clientX - screenshotSelectionStart.x);
+    const h = Math.abs(e.clientY - screenshotSelectionStart.y);
+    screenshotSelectionStart = null;
+
+    exitScreenshotMode();
+
+    if (w < 5 || h < 5) return; // too small, cancel
+
+    chrome.runtime.sendMessage({
+      type: 'screenshotRegionSelected',
+      region: { x, y, width: w, height: h, devicePixelRatio: window.devicePixelRatio || 1 }
+    }).catch(() => {});
+  }
+
+  function handleScreenshotKeydown(e) {
+    if (e.key === 'Escape') {
+      exitScreenshotMode();
+    }
   }
 
 function getSelector(element) {

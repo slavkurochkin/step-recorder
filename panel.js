@@ -8,6 +8,8 @@ let recordingStartTime = null;
 let isAssertionMode = false;
 let pendingAssertType = null;
 let insertAfterIndex = null; // For inserting assertions after a specific step
+let isScreenshotMode = false;
+let pendingScreenshotRegion = null;
 
 const btnStart = document.getElementById('btnStart');
 const btnPause = document.getElementById('btnPause');
@@ -26,6 +28,9 @@ const rawStepsTextarea = document.getElementById('rawStepsTextarea');
 const llmStepsTextarea = document.getElementById('llmStepsTextarea');
 const assertModal = document.getElementById('assertModal');
 const assertionBanner = document.getElementById('assertionBanner');
+const btnScreenshot = document.getElementById('btnScreenshot');
+const screenshotModal = document.getElementById('screenshotModal');
+const screenshotBanner = document.getElementById('screenshotBanner');
 const contextMenu = document.getElementById('contextMenu');
 const btnCopyRaw = document.getElementById('btnCopyRaw');
 const btnCopyLLM = document.getElementById('btnCopyLLM');
@@ -109,6 +114,12 @@ function handlePortMessage(message) {
     }
   } else if (message.type === 'assertionCaptured' && isAssertionMode) {
     handleAssertionCaptured(message.elementData);
+  } else if (message.type === 'screenshotRegionSelected') {
+    pendingScreenshotRegion = message.region;
+    exitScreenshotSelectionMode();
+    triggerScreenshotCapture(message.region);
+  } else if (message.type === 'screenshotCaptured') {
+    handleScreenshotCaptured(message.dataUrl, message.region);
   } else if (message.type === 'errorCaptured') {
     // Always store captured errors for later selection
     capturedErrors.unshift(message.step);
@@ -271,6 +282,8 @@ function generateStepText(step) {
     return `Navigate to ${step.url || 'page'}`;
   } else if (step.type === 'pageload') {
     return `Page loaded: ${step.text || step.url || 'Unknown'}`;
+  } else if (step.type === 'screenshot') {
+    return step.screenshotType === 'partial' ? 'Screenshot (partial)' : 'Screenshot (full page)';
   } else if (step.type === 'assert') {
     const assertType = step.assertType === 'exists' ? 'exists' :
                       step.assertType === 'visible' ? 'is visible' : 'contains text';
@@ -319,6 +332,9 @@ function renderSteps(scrollToBottom = false) {
     } else if (isError) {
       badgeClass = 'error';
       typeLabel = step.errorType === 'note' ? 'note' : step.errorType === 'network' ? 'net err' : 'err';
+    } else if (step.type === 'screenshot') {
+      badgeClass = 'screenshot';
+      typeLabel = 'screenshot';
     }
 
     const stepText = escapeHtml(generateStepText(step));
@@ -362,6 +378,10 @@ function renderSteps(scrollToBottom = false) {
       }
     }
 
+    const thumbHtml = step.type === 'screenshot' && step.dataUrl
+      ? `<img class="step-screenshot-thumb" src="${step.dataUrl}" data-index="${index}" title="Click to view full size" />`
+      : '';
+
     return `
       <div class="step-item" data-index="${index}"${hasAlts ? ' style="padding-right:46px;"' : ''}>
         <div class="step-number${badgeClass ? ' ' + badgeClass : ''}">${index + 1}</div>
@@ -369,6 +389,7 @@ function renderSteps(scrollToBottom = false) {
           <span class="step-badge${badgeClass ? ' ' + badgeClass : ''}">${typeLabel}</span>
           <span class="step-text-editable step-details" data-index="${index}" title="Click to edit">${stepText}</span>
           <span class="step-timestamp">+${timeStr}</span>
+          ${thumbHtml}
         </div>
         ${hasAlts ? `<button class="step-selector-btn" data-index="${index}" title="Switch selector&#10;current: ${escapeHtml(currentSel)}">#</button>` : ''}
         <button class="step-delete" data-index="${index}" title="Delete step">×</button>
@@ -1137,6 +1158,123 @@ btnAssert.addEventListener('click', () => {
   showAssertModal();
 });
 
+// ============ Screenshot Mode ============
+
+function showScreenshotModal() {
+  screenshotModal.classList.add('show');
+}
+
+function hideScreenshotModal() {
+  screenshotModal.classList.remove('show');
+}
+
+function getInspectedTabId() {
+  try {
+    return chrome.devtools?.inspectedWindow?.tabId || null;
+  } catch (e) { return null; }
+}
+
+function triggerScreenshotCapture(region) {
+  port.postMessage({
+    type: 'captureScreenshot',
+    tabId: getInspectedTabId(),
+    region: region || null
+  });
+}
+
+async function cropScreenshot(dataUrl, region) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const dpr = region.devicePixelRatio || 1;
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(region.width * dpr);
+      canvas.height = Math.round(region.height * dpr);
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(
+        img,
+        Math.round(region.x * dpr), Math.round(region.y * dpr),
+        Math.round(region.width * dpr), Math.round(region.height * dpr),
+        0, 0,
+        canvas.width, canvas.height
+      );
+      resolve(canvas.toDataURL('image/png'));
+    };
+    img.src = dataUrl;
+  });
+}
+
+async function handleScreenshotCaptured(dataUrl, region) {
+  let finalDataUrl = dataUrl;
+  let screenshotType = 'full';
+
+  if (region) {
+    screenshotType = 'partial';
+    finalDataUrl = await cropScreenshot(dataUrl, region);
+  }
+
+  const screenshotStep = {
+    type: 'screenshot',
+    screenshotType,
+    timestamp: Date.now(),
+    dataUrl: finalDataUrl,
+    region: region || null
+  };
+
+  steps.push(screenshotStep);
+  renderSteps(true);
+}
+
+function enterScreenshotSelectionMode() {
+  isScreenshotMode = true;
+  hideScreenshotModal();
+  screenshotBanner.classList.add('show');
+  btnScreenshot.classList.add('active');
+
+  port.postMessage({
+    type: 'broadcastToContent',
+    tabId: getInspectedTabId(),
+    message: { type: 'enterScreenshotMode' }
+  });
+}
+
+function exitScreenshotSelectionMode() {
+  isScreenshotMode = false;
+  screenshotBanner.classList.remove('show');
+  btnScreenshot.classList.remove('active');
+
+  port.postMessage({
+    type: 'broadcastToContent',
+    tabId: getInspectedTabId(),
+    message: { type: 'exitScreenshotMode' }
+  });
+}
+
+btnScreenshot.addEventListener('click', showScreenshotModal);
+
+document.getElementById('screenshotFullPage').addEventListener('click', () => {
+  hideScreenshotModal();
+  triggerScreenshotCapture(null);
+});
+
+document.getElementById('screenshotPartial').addEventListener('click', () => {
+  enterScreenshotSelectionMode();
+});
+
+document.getElementById('btnCancelScreenshot').addEventListener('click', hideScreenshotModal);
+
+screenshotModal.addEventListener('click', (e) => {
+  if (e.target === screenshotModal) hideScreenshotModal();
+});
+
+// Click thumbnail to open full size
+stepsContainer.addEventListener('click', (e) => {
+  if (e.target.classList.contains('step-screenshot-thumb')) {
+    const win = window.open();
+    win.document.write(`<img src="${e.target.src}" style="max-width:100%;">`);
+  }
+});
+
 // Modal option clicks
 assertModal.querySelectorAll('.modal-option').forEach(option => {
   option.addEventListener('click', () => {
@@ -1158,8 +1296,12 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     if (isAssertionMode) {
       exitAssertionMode();
+    } else if (isScreenshotMode) {
+      exitScreenshotSelectionMode();
     } else if (assertModal.classList.contains('show')) {
       hideAssertModal();
+    } else if (screenshotModal.classList.contains('show')) {
+      hideScreenshotModal();
     } else if (document.getElementById('networkDetailModal').classList.contains('show')) {
       hideNetworkDetail();
     } else if (selectorPicker.classList.contains('show')) {

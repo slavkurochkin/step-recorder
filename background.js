@@ -83,6 +83,13 @@ chrome.runtime.onConnect.addListener((port) => {
       } else if (message.type === 'setInspectedTab') {
         inspectedTabId = message.tabId;
         console.log('Background: Set inspected tab ID:', inspectedTabId);
+      } else if (message.type === 'captureScreenshot') {
+        const tabId = message.tabId || inspectedTabId;
+        chrome.tabs.captureVisibleTab(null, { format: 'png' }, (dataUrl) => {
+          if (devtoolsPort) {
+            devtoolsPort.postMessage({ type: 'screenshotCaptured', dataUrl, region: message.region || null });
+          }
+        });
       }
     });
   } else {
@@ -98,7 +105,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const isThisTabRecording = isRecordingActive && sender.tab && sender.tab.id === inspectedTabId;
     sendResponse({ isRecording: isThisTabRecording });
     return true;
-  } else if (message.type === 'stepRecorded' || message.type === 'assertionCaptured' || message.type === 'errorCaptured') {
+  } else if (message.type === 'stepRecorded' || message.type === 'assertionCaptured' || message.type === 'errorCaptured' || message.type === 'screenshotRegionSelected') {
     // Only accept steps from the inspected tab
     if (sender.tab && sender.tab.id !== inspectedTabId) {
       console.log('Background: Ignoring step from non-inspected tab', sender.tab.id);

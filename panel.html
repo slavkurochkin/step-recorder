@@ -532,6 +532,46 @@
       box-shadow: inset 0 2px 4px rgba(0,0,0,0.2);
     }
 
+    .btn-screenshot {
+      background: #00897B;
+      color: white;
+    }
+
+    .btn-screenshot:hover {
+      background: #00695C;
+    }
+
+    .btn-screenshot.active {
+      background: #004D40;
+      box-shadow: inset 0 2px 4px rgba(0,0,0,0.2);
+    }
+
+    .screenshot-mode-banner {
+      display: none;
+      background: #00897B;
+      color: white;
+      padding: 8px 16px;
+      font-size: 12px;
+      text-align: center;
+    }
+
+    .screenshot-mode-banner.show {
+      display: block;
+    }
+
+    .step-number.screenshot { background: #00897B; }
+    .step-badge.screenshot  { background: #e0f2f1; color: #00695C; }
+
+    .step-screenshot-thumb {
+      margin-top: 6px;
+      max-width: 100%;
+      max-height: 120px;
+      border-radius: 4px;
+      border: 1px solid #ddd;
+      cursor: pointer;
+      display: block;
+    }
+
     .btn-error {
       background: #f44336;
       color: white;
@@ -1200,6 +1240,7 @@
       <button id="btnPause" class="btn-pause">⏸ Pause</button>
       <button id="btnStop" class="btn-stop">⏹ Stop</button>
       <button id="btnAssert" class="btn-assert">+ Assert</button>
+      <button id="btnScreenshot" class="btn-screenshot">+ Screenshot</button>
       <button id="btnAddError" class="btn-error">+ Error</button>
       <button id="btnClear" class="btn-clear">Clear</button>
       <div id="status" class="status idle">Idle</div>
@@ -1207,6 +1248,9 @@
 
     <div id="assertionBanner" class="assertion-mode-banner">
       Click an element on the page to add assertion. Press Esc to cancel.
+    </div>
+    <div id="screenshotBanner" class="screenshot-mode-banner">
+      Drag to select an area on the page. Press Esc to cancel.
     </div>
 
     <div class="options-row">
@@ -1308,6 +1352,24 @@
         </div>
       </div>
       <button id="btnCancelAssert" class="modal-cancel">Cancel</button>
+    </div>
+  </div>
+
+  <!-- Screenshot Modal -->
+  <div id="screenshotModal" class="modal-overlay">
+    <div class="modal">
+      <h3>Take Screenshot</h3>
+      <div class="modal-options">
+        <div class="modal-option" id="screenshotFullPage">
+          <div class="modal-option-title">Full Page</div>
+          <div class="modal-option-desc">Capture the entire visible viewport</div>
+        </div>
+        <div class="modal-option" id="screenshotPartial">
+          <div class="modal-option-title">Select Area</div>
+          <div class="modal-option-desc">Drag to capture a specific region</div>
+        </div>
+      </div>
+      <button id="btnCancelScreenshot" class="modal-cancel">Cancel</button>
     </div>
   </div>
 

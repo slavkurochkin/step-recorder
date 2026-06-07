@@ -15,6 +15,7 @@ window.__stepRecorderInjected = true;
   let filterByDomain = false;
   let domainFilterPattern = '';
   let recordingJustStarted = false;
+  let captureFeatureFlags = true;
 
   // Use window-level deduplication to handle any edge cases
   if (!window.__stepRecorderDedup) {
@@ -72,7 +73,7 @@ window.__stepRecorderInjected = true;
   checkAndResumeRecording(true);
 
   // Load recording settings from storage
-  chrome.storage.local.get(['recordFocusEvents', 'captureConsoleErrors', 'captureNetworkErrors', 'captureAllLogs', 'filterByDomain', 'domainFilter'], (result) => {
+  chrome.storage.local.get(['recordFocusEvents', 'captureConsoleErrors', 'captureNetworkErrors', 'captureAllLogs', 'filterByDomain', 'domainFilter', 'captureFeatureFlags'], (result) => {
     if (chrome.runtime.lastError) return;
     recordFocusEvents = result.recordFocusEvents || false;
     captureConsoleErrors = result.captureConsoleErrors || false;
@@ -80,6 +81,7 @@ window.__stepRecorderInjected = true;
     captureAllLogs = result.captureAllLogs || false;
     filterByDomain = result.filterByDomain === true;
     domainFilterPattern = result.domainFilter || '';
+    captureFeatureFlags = result.captureFeatureFlags !== false;
   });
 
   // Track last navigation to prevent duplicates
@@ -174,6 +176,9 @@ window.__stepRecorderInjected = true;
       captureAllLogs = message.captureAllLogs || false;
       filterByDomain = message.filterByDomain !== false;
       domainFilterPattern = message.domainFilter || '';
+      if (typeof message.captureFeatureFlags !== 'undefined') {
+        captureFeatureFlags = message.captureFeatureFlags;
+      }
       sendResponse({ status: 'ok' });
     } else if (message.type === 'highlightResponseData') {
       highlightResponseData(message.responseBody);
@@ -797,6 +802,56 @@ function sendErrorToPanel(errorType, message, url = '') {
       url: url
     }
   }).catch(() => {});
+}
+
+// Bridge feature-flag events from the MAIN-world hook (flag-hook.js) to the panel.
+// Dedupe per kind so we only forward when a flag's value is first seen (for that kind)
+// or actually changes — variation() fires on every render, the SDK re-polls bootstrap.
+const flagLastValue = new Map(); // `${provider}:${key}:${kind}` -> JSON string of value
+
+function forwardFlagStep(provider, kind, key, value, extra, ts) {
+  if (!isExtensionValid() || !isRecording || isPaused || !captureFeatureFlags) return;
+  const serialized = JSON.stringify(value === undefined ? null : value);
+  const dedupeKey = `${provider}:${key}:${kind}`;
+  if (kind !== 'change' && flagLastValue.get(dedupeKey) === serialized) return;
+  flagLastValue.set(dedupeKey, serialized);
+
+  chrome.runtime.sendMessage({
+    type: 'flagCaptured',
+    step: Object.assign({
+      type: 'flag',
+      provider,
+      kind,
+      key,
+      value,
+      timestamp: ts || Date.now()
+    }, extra || {})
+  }).catch(() => {});
+}
+
+// Only attach the postMessage listener once across re-injections.
+if (!window.__stepRecorderFlagBridge) {
+  window.__stepRecorderFlagBridge = true;
+  window.addEventListener('message', (event) => {
+    if (event.source !== window) return;
+    const data = event.data;
+    if (!data || data.source !== 'step-recorder-flags') return;
+
+    const provider = data.provider || 'Unknown';
+    if (data.kind === 'eval') {
+      // Point-of-use: timestamp at the actual variation() call (data.t).
+      forwardFlagStep(provider, 'eval', data.key, data.value, data.reason ? { reason: data.reason } : null, data.t);
+    } else if (data.kind === 'change' && data.changes) {
+      for (const key of Object.keys(data.changes)) {
+        const c = data.changes[key] || {};
+        forwardFlagStep(provider, 'change', key, c.current, { previous: c.previous }, data.t);
+      }
+    } else if ((data.kind === 'bootstrap' || data.kind === 'ready' || data.kind === 'snapshot') && data.flags) {
+      for (const key of Object.keys(data.flags)) {
+        forwardFlagStep(provider, 'bootstrap', key, data.flags[key], null, data.t);
+      }
+    }
+  });
 }
 
 // Patch globals only once — re-injection would create a chain of wrappers otherwise

@@ -741,6 +741,29 @@
     .step-item:hover .step-selector-btn { opacity: 1; }
     .step-selector-btn:hover { background: #e3f2fd; color: #1565C0; }
 
+    .step-export-apis-btn {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 18px;
+      height: 18px;
+      border: none;
+      background: transparent;
+      color: #aaa;
+      cursor: pointer;
+      border-radius: 3px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      transition: opacity 0.15s, background 0.15s, color 0.15s;
+      font-size: 12px;
+      padding: 0;
+    }
+
+    .step-item:hover .step-export-apis-btn { opacity: 1; }
+    .step-export-apis-btn:hover { background: #e8f5e9; color: #2e7d32; }
+
     .step-sel-chip {
       font-family: 'Monaco', 'Menlo', monospace;
       font-size: 9px;
@@ -1222,6 +1245,78 @@
       word-break: break-all;
       line-height: 1.4;
     }
+    /* Feature flags — inline under steps, mirroring the API-call rows */
+    .step-flag-toggle {
+      padding: 2px 10px 2px 34px;
+      font-size: 10px;
+      color: #6a1b9a;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      background: #fcf8ff;
+      border-bottom: 1px solid #f0f0f0;
+      transition: background 0.1s;
+      font-family: 'Monaco', 'Menlo', monospace;
+      user-select: none;
+    }
+    .step-flag-toggle:hover { background: #f3e5f5; color: #4a148c; }
+    .step-flag-toggle.expanded { color: #4a148c; }
+    .step-flag-row {
+      padding: 2px 10px 2px 34px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      border-bottom: 1px solid #f5f5f5;
+      background: #fdfaff;
+      min-height: 22px;
+    }
+    .step-flag-row:last-child { border-bottom: none; }
+    .flag-provider {
+      font-size: 9px;
+      font-weight: 600;
+      color: #6a1b9a;
+      background: #f3e5f5;
+      border-radius: 3px;
+      padding: 1px 5px;
+      flex-shrink: 0;
+    }
+    .flag-kind {
+      font-size: 9px;
+      font-weight: 600;
+      border-radius: 3px;
+      padding: 1px 5px;
+      flex-shrink: 0;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+    .flag-kind-bootstrap { color: #546e7a; background: #eceff1; }
+    .flag-kind-eval { color: #1565C0; background: #e3f2fd; }
+    .flag-kind-change { color: #e65100; background: #fff3e0; }
+    .flag-key {
+      font-family: 'Monaco', 'Menlo', monospace;
+      color: #1565C0;
+      flex: 1;
+      min-width: 0;
+      word-break: break-all;
+    }
+    .flag-value {
+      font-family: 'Monaco', 'Menlo', monospace;
+      font-weight: 600;
+      color: #2e7d32;
+      max-width: 45%;
+      word-break: break-all;
+      text-align: right;
+    }
+    .flag-value.bool-false { color: #c62828; }
+    .flag-changed {
+      font-size: 9px;
+      color: #e65100;
+      background: #fff3e0;
+      border-radius: 3px;
+      padding: 1px 4px;
+      flex-shrink: 0;
+    }
   </style>
 </head>
 <body>
@@ -1232,6 +1327,12 @@
         <input type="password" id="apiKeyInput" placeholder="sk-...">
         <button id="btnSaveKey" class="btn-save">Save</button>
         <span id="apiKeyStatus" class="api-key-status missing">Not set</span>
+      </div>
+      <label style="margin-top:8px;">Journey Map Endpoint:</label>
+      <div class="settings-row">
+        <input type="text" id="endpointInput" placeholder="http://localhost:3001/api/sessions/ingest">
+        <button id="btnSaveEndpoint" class="btn-save">Save</button>
+        <span id="endpointStatus" class="api-key-status missing">Not set</span>
       </div>
     </div>
 
@@ -1271,6 +1372,10 @@
         ALL logs
       </label>
       <label class="option-toggle">
+        <input type="checkbox" id="captureFeatureFlags" checked>
+        Feature flags
+      </label>
+      <label class="option-toggle">
         <input type="checkbox" id="captureNetworkRequests">
         API requests
       </label>
@@ -1300,6 +1405,8 @@
 
     <div class="export-controls">
       <button id="btnExport" class="btn-export">Export JSON</button>
+      <button id="btnSend" class="btn-export" style="background:#4F46E5;color:#fff;">⇧ Send to Journey Map</button>
+      <span id="sendStatus" style="font-size:11px;color:#888;margin-left:6px;"></span>
     </div>
 
     <div id="testCasesSection" class="test-cases-section">
@@ -1468,6 +1575,7 @@
 
   <!-- Context Menu -->
   <div id="contextMenu" class="context-menu">
+    <div class="context-menu-item" data-action="export-apis" id="ctxExportApis" style="display:none;">Export API Calls</div>
     <div class="context-menu-item" data-action="assert-after">Add Assertion After</div>
     <div class="context-menu-item" data-action="error-after">Add Error/Note After</div>
     <div class="context-menu-item" data-action="delete">Delete Step</div>

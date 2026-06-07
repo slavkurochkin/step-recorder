@@ -1,5 +1,13 @@
 let steps = [];
 let networkSteps = [];
+// Feature flags rendered inline in the step timeline (like network requests).
+// flagSteps is the time-ordered log of flag captures. Each entry has a `kind`:
+//   - bootstrap: flag present in the SDK's initial/streamed flag set (page load)
+//   - eval:      app actually read the flag via variation() — timestamped at point-of-use
+//   - change:    flag value changed mid-session (streaming patch / change event)
+let flagSteps = [];
+let flagDedup = new Map();   // `${provider}:${key}:${kind}` -> last value (suppress repeats)
+let flagCurrent = new Map(); // `${provider}:${key}` -> last value (change detection across kinds)
 let hiddenMethods = new Set(JSON.parse(localStorage.getItem('srHiddenMethods') || '[]'));
 let networkSearchQuery = '';
 let isRecording = false;
@@ -42,6 +50,7 @@ const captureAllLogs = document.getElementById('captureAllLogs');
 const filterByDomain = document.getElementById('filterByDomain');
 const domainFilter = document.getElementById('domainFilter');
 const captureNetworkRequests = document.getElementById('captureNetworkRequests');
+const captureFeatureFlags = document.getElementById('captureFeatureFlags');
 const networkUrlFilterInput = document.getElementById('networkUrlFilter');
 const methodFiltersEl = document.getElementById('methodFilters');
 const networkSearchInput = document.getElementById('networkSearchInput');
@@ -54,6 +63,7 @@ const errorMessageInput = document.getElementById('errorMessage');
 let errorInsertAfterIndex = null; // For inserting errors after a specific step
 let capturedErrors = []; // Store recent errors for selection
 let expandedApiSteps = new Set(); // Step indices whose API rows are expanded
+let expandedFlagSteps = new Set(); // Step indices whose flag rows are expanded
 const MAX_CAPTURED_ERRORS = 20;
 
 // Establish connection to background script
@@ -134,7 +144,109 @@ function handlePortMessage(message) {
         (message.errorType === 'network' && captureNetworkErrors.checked)) {
       addStep(message.step);
     }
+  } else if (message.type === 'flagCaptured' && isRecording && !isPaused) {
+    if (captureFeatureFlags.checked) addFlag(message.step);
   }
+}
+
+function addFlag(step) {
+  const provider = step.provider || 'Unknown';
+  const kind = step.kind || 'eval';
+  const flagId = `${provider}:${step.key}`;
+  const dedupeKey = `${flagId}:${kind}`;
+  const serialized = JSON.stringify(step.value === undefined ? null : step.value);
+
+  // Suppress repeats of the same kind+value (variation() fires every render; the SDK
+  // re-polls the same bootstrap set). Changes always pass through. A first eval is kept
+  // even when it matches the bootstrap value, because its point-of-use timestamp matters.
+  if (kind !== 'change' && flagDedup.get(dedupeKey) === serialized) return;
+  flagDedup.set(dedupeKey, serialized);
+
+  const prevCurrent = flagCurrent.get(flagId);
+  const changed = prevCurrent !== undefined && prevCurrent !== serialized;
+  flagCurrent.set(flagId, serialized);
+
+  flagSteps.push({
+    type: 'flag',
+    provider,
+    key: step.key,
+    value: step.value,
+    previous: changed ? JSON.parse(prevCurrent) : step.previous,
+    changed: changed || kind === 'change',
+    kind,
+    timestamp: step.timestamp || Date.now()
+  });
+  renderSteps();
+}
+
+// --- LaunchDarkly network-response parsing (primary capture path) ---
+function isLaunchDarklyEvalUrl(u) {
+  if (!u) return false;
+  if (u.indexOf('launchdarkly.com') === -1 && u.indexOf('launchdarkly.us') === -1) return false;
+  return /clientstream\./.test(u) || /clientsdk\./.test(u) || /\/eval/.test(u) || /\/sdk\/eval/.test(u);
+}
+
+function ldFlagValue(entry) {
+  return (entry && typeof entry === 'object' && 'value' in entry) ? entry.value : entry;
+}
+
+// Ingest a `{ flagKey: { value, ... } }` map. Returns true if any flag was found.
+// The network feed only ever carries the SDK's flag set, so these are `bootstrap`.
+function ingestLDFlagMap(map, kind) {
+  if (!map || typeof map !== 'object') return false;
+  let any = false;
+  for (const key of Object.keys(map)) {
+    const entry = map[key];
+    // Real LD entries are objects carrying a `value`; skip anything else.
+    if (entry && typeof entry === 'object' && !('value' in entry)) continue;
+    addFlag({ provider: 'LaunchDarkly', kind: kind || 'bootstrap', key, value: ldFlagValue(entry), timestamp: Date.now() });
+    any = true;
+  }
+  return any;
+}
+
+function parseLaunchDarklyResponse(url, body) {
+  if (!body) return;
+
+  // 1) Plain JSON map — polling / evalx / bootstrap responses.
+  try {
+    let obj = JSON.parse(body);
+    if (obj && obj.data && typeof obj.data === 'object') obj = obj.data;
+    if (ingestLDFlagMap(obj)) return;
+  } catch (_) {}
+
+  // 2) SSE stream text — lines of `event: put|patch` followed by `data: {...}`.
+  let currentEvent = null;
+  for (const line of body.split(/\r?\n/)) {
+    if (line.startsWith('event:')) {
+      currentEvent = line.slice(6).trim();
+    } else if (line.startsWith('data:')) {
+      try {
+        let d = JSON.parse(line.slice(5).trim());
+        if (d && d.data && typeof d.data === 'object') d = d.data;
+        if (currentEvent === 'patch' && d && d.key) {
+          addFlag({ provider: 'LaunchDarkly', kind: 'change', key: d.key, value: ldFlagValue(d), timestamp: Date.now() });
+        } else {
+          ingestLDFlagMap(d);
+        }
+      } catch (_) {}
+    }
+  }
+}
+
+function formatFlagValue(v) {
+  if (v === null) return 'null';
+  if (v === undefined) return 'undefined';
+  if (typeof v === 'string') return JSON.stringify(v);
+  if (typeof v === 'object') return JSON.stringify(v);
+  return String(v);
+}
+
+// Flags captured within a step's time window [step.timestamp, nextStep.timestamp).
+function flagsForStepWindow(thisTs, nextTs) {
+  return flagSteps
+    .map((fs, fi) => ({ fs, fi }))
+    .filter(({ fs }) => fs.timestamp >= thisTs && fs.timestamp < nextTs);
 }
 
 connectToBackground();
@@ -142,9 +254,18 @@ connectToBackground();
 // DevTools Network API — reliable capture without content script patching
 if (chrome.devtools && chrome.devtools.network) {
   chrome.devtools.network.onRequestFinished.addListener((request) => {
-    if (!isRecording || isPaused || !captureNetworkRequests.checked) return;
+    if (!isRecording || isPaused) return;
 
     const url = request.request.url;
+
+    // Feature-flag capture — read LaunchDarkly's eval/stream responses directly from
+    // the DevTools network feed. Independent of the API-requests toggle, and works
+    // regardless of page CSP / SDK bundling.
+    if (captureFeatureFlags.checked && isLaunchDarklyEvalUrl(url)) {
+      request.getContent((body) => parseLaunchDarklyResponse(url, body));
+    }
+
+    if (!captureNetworkRequests.checked) return;
     const filter = networkUrlFilterInput.value.trim();
     if (filter && !url.includes(filter)) return;
 
@@ -158,6 +279,7 @@ if (chrome.devtools && chrome.devtools.network) {
         statusText: request.response.statusText,
         requestHeaders: request.request.headers || [],
         requestBody: request.request.postData?.text?.substring(0, 5000) || null,
+        responseHeaders: request.response.headers || [],
         responseBody: encoding === 'base64' ? '[binary]' : (body || '').substring(0, 100000),
         duration: Math.round(request.time),
         tagName: 'network',
@@ -378,12 +500,50 @@ function renderSteps(scrollToBottom = false) {
       }
     }
 
+    // Find feature flags captured in this step's time window (like network calls).
+    const relatedFlags = flagsForStepWindow(thisTs, nextTs);
+
+    let flagRowsHtml = '';
+    if (relatedFlags.length > 0) {
+      const isExpanded = expandedFlagSteps.has(index);
+      const count = relatedFlags.length;
+      const label = isExpanded
+        ? `▾ hide ${count} flag${count > 1 ? 's' : ''}`
+        : `▸ ${count} flag${count > 1 ? 's' : ''}`;
+      flagRowsHtml = `<div class="step-flag-toggle${isExpanded ? ' expanded' : ''}" data-flag-step-index="${index}">${label}</div>`;
+      if (isExpanded) {
+        flagRowsHtml += relatedFlags.map(({ fs }) => {
+          const valStr = escapeHtml(formatFlagValue(fs.value));
+          const boolFalseClass = fs.value === false ? ' bool-false' : '';
+          const changedBadge = fs.changed
+            ? `<span class="flag-changed" title="Changed from ${escapeHtml(formatFlagValue(fs.previous))}">changed</span>`
+            : '';
+          return `<div class="step-flag-row">
+            <span class="step-api-arrow">↳</span>
+            <span class="flag-provider">${escapeHtml(fs.provider)}</span>
+            <span class="flag-kind flag-kind-${escapeHtml(fs.kind)}">${escapeHtml(fs.kind)}</span>
+            <span class="flag-key">${escapeHtml(fs.key)}</span>
+            ${changedBadge}
+            <span class="flag-value${boolFalseClass}">${valStr}</span>
+          </div>`;
+        }).join('');
+      }
+    }
+
     const thumbHtml = step.type === 'screenshot' && step.dataUrl
       ? `<img class="step-screenshot-thumb" src="${step.dataUrl}" data-index="${index}" title="Click to view full size" />`
       : '';
 
+    const hasApis = relatedNet.length > 0;
+    // Stack buttons right-to-left: × (5px), # (26px), ↓ (47px)
+    // Padding grows to fit however many buttons are showing
+    let paddingRight = 28;
+    if (hasAlts) paddingRight = Math.max(paddingRight, 46);
+    if (hasApis) paddingRight = Math.max(paddingRight, hasAlts ? 68 : 46);
+    const exportBtnRight = hasAlts ? 47 : 26;
+
     return `
-      <div class="step-item" data-index="${index}"${hasAlts ? ' style="padding-right:46px;"' : ''}>
+      <div class="step-item" data-index="${index}" style="padding-right:${paddingRight}px;">
         <div class="step-number${badgeClass ? ' ' + badgeClass : ''}">${index + 1}</div>
         <div class="step-content">
           <span class="step-badge${badgeClass ? ' ' + badgeClass : ''}">${typeLabel}</span>
@@ -392,9 +552,11 @@ function renderSteps(scrollToBottom = false) {
           ${thumbHtml}
         </div>
         ${hasAlts ? `<button class="step-selector-btn" data-index="${index}" title="Switch selector&#10;current: ${escapeHtml(currentSel)}">#</button>` : ''}
+        ${hasApis ? `<button class="step-export-apis-btn" data-index="${index}" title="Export API calls" style="right:${exportBtnRight}px;">↓</button>` : ''}
         <button class="step-delete" data-index="${index}" title="Delete step">×</button>
       </div>
       ${netRowsHtml}
+      ${flagRowsHtml}
     `;
   }).join('');
 
@@ -669,6 +831,7 @@ btnStart.addEventListener('click', () => {
       captureConsole: captureConsoleErrors.checked,
       captureNetwork: captureNetworkErrors.checked,
       captureAllLogs: captureAllLogs.checked,
+      captureFeatureFlags: captureFeatureFlags.checked,
       filterByDomain: filterByDomain.checked,
       domainFilter: domainFilter.value.trim()
     }
@@ -716,10 +879,14 @@ btnClear.addEventListener('click', () => {
   if (confirm('Clear all recorded steps?')) {
     steps = [];
     networkSteps = [];
+    flagSteps = [];
+    flagDedup.clear();
+    flagCurrent.clear();
     recordingStartTime = null;
     networkSearchQuery = '';
     networkSearchInput.value = '';
     expandedApiSteps.clear();
+    expandedFlagSteps.clear();
     rawStepsTextarea.value = '';
     llmStepsTextarea.value = '';
     renderMethodFilters();
@@ -727,27 +894,100 @@ btnClear.addEventListener('click', () => {
   }
 });
 
-btnExport.addEventListener('click', () => {
-  if (steps.length === 0 && networkSteps.length === 0) {
-    alert('No steps to export');
-    return;
-  }
-  
-  const exportData = {
+function buildExportData() {
+  return {
     timestamp: new Date().toISOString(),
     steps: steps,
     networkRequests: networkSteps,
+    featureFlags: flagSteps,
     totalSteps: steps.length,
-    totalNetworkRequests: networkSteps.length
+    totalNetworkRequests: networkSteps.length,
+    totalFeatureFlags: flagSteps.length
   };
-  
-  const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+}
+
+btnExport.addEventListener('click', () => {
+  if (steps.length === 0 && networkSteps.length === 0 && flagSteps.length === 0) {
+    alert('No steps to export');
+    return;
+  }
+
+  const blob = new Blob([JSON.stringify(buildExportData(), null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
   a.download = `step-recording-${Date.now()}.json`;
   a.click();
   URL.revokeObjectURL(url);
+});
+
+// ---- Send to Journey Map endpoint ----
+const endpointInput = document.getElementById('endpointInput');
+const endpointStatus = document.getElementById('endpointStatus');
+const btnSaveEndpoint = document.getElementById('btnSaveEndpoint');
+const btnSend = document.getElementById('btnSend');
+const sendStatus = document.getElementById('sendStatus');
+
+async function loadEndpoint() {
+  try {
+    const { journeyMapEndpoint } = await chrome.storage.local.get(['journeyMapEndpoint']);
+    if (journeyMapEndpoint) {
+      endpointInput.value = journeyMapEndpoint;
+      endpointStatus.textContent = '✓ Saved';
+      endpointStatus.className = 'api-key-status';
+    } else {
+      endpointStatus.textContent = 'Not set';
+      endpointStatus.className = 'api-key-status missing';
+    }
+  } catch (e) {
+    console.error('Error loading endpoint:', e);
+  }
+}
+
+async function saveEndpoint() {
+  const endpoint = endpointInput.value.trim();
+  if (!endpoint) { alert('Please enter an endpoint URL'); return; }
+  await chrome.storage.local.set({ journeyMapEndpoint: endpoint });
+  endpointStatus.textContent = '✓ Saved';
+  endpointStatus.className = 'api-key-status';
+}
+
+btnSaveEndpoint.addEventListener('click', saveEndpoint);
+loadEndpoint();
+
+btnSend.addEventListener('click', async () => {
+  if (steps.length === 0 && networkSteps.length === 0) {
+    alert('No steps to send');
+    return;
+  }
+  const endpoint = endpointInput.value.trim();
+  if (!endpoint) {
+    alert('Set a Journey Map endpoint first (e.g. http://localhost:3001/api/sessions/ingest)');
+    return;
+  }
+
+  btnSend.disabled = true;
+  sendStatus.style.color = '#888';
+  sendStatus.textContent = 'Sending…';
+  try {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ recording: buildExportData() }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    sendStatus.style.color = '#16a34a';
+    sendStatus.textContent = `✓ Sent — "${data.title || 'journey'}" (${data.stations ?? 0} stations)`;
+  } catch (e) {
+    sendStatus.style.color = '#dc2626';
+    sendStatus.textContent = `✕ ${e.message}`;
+  } finally {
+    btnSend.disabled = false;
+  }
 });
 
 // API Key Management
@@ -1315,11 +1555,47 @@ document.addEventListener('keydown', (e) => {
 
 let contextMenuStepIndex = null;
 
+function getRelatedNetworkCalls(stepIndex) {
+  const step = steps[stepIndex];
+  if (!step) return [];
+  const thisTs = step.timestamp;
+  const nextTs = steps[stepIndex + 1]?.timestamp ?? Infinity;
+  return networkSteps.filter(ns => ns.timestamp >= thisTs && ns.timestamp < nextTs);
+}
+
 function showContextMenu(x, y, stepIndex) {
   contextMenuStepIndex = stepIndex;
   contextMenu.style.left = x + 'px';
   contextMenu.style.top = y + 'px';
   contextMenu.classList.add('show');
+  const hasApis = getRelatedNetworkCalls(stepIndex).length > 0;
+  document.getElementById('ctxExportApis').style.display = hasApis ? '' : 'none';
+}
+
+function exportApiCallsForStep(stepIndex) {
+  const calls = getRelatedNetworkCalls(stepIndex);
+  calls.forEach((ns, i) => {
+    const urlPath = ns.url ? ns.url.replace(/^https?:\/\/[^/]+/, '') : 'unknown';
+    const safeName = `${ns.method || 'GET'}${urlPath}`.replace(/[^a-zA-Z0-9]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
+    const data = {
+      method: ns.method,
+      url: ns.url,
+      status: ns.status,
+      statusText: ns.statusText,
+      duration: ns.duration,
+      timestamp: ns.timestamp,
+      requestHeaders: ns.requestHeaders,
+      requestBody: ns.requestBody,
+      responseHeaders: ns.responseHeaders,
+      responseBody: ns.responseBody
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${safeName}.json`;
+    setTimeout(() => { a.click(); URL.revokeObjectURL(url); }, i * 200);
+  });
 }
 
 function hideContextMenu() {
@@ -1340,7 +1616,10 @@ stepsContainer.addEventListener('contextmenu', (e) => {
 // Context menu item clicks
 contextMenu.addEventListener('click', (e) => {
   const action = e.target.dataset.action;
-  if (action === 'assert-after') {
+  if (action === 'export-apis') {
+    if (contextMenuStepIndex !== null) exportApiCallsForStep(contextMenuStepIndex);
+    hideContextMenu();
+  } else if (action === 'assert-after') {
     insertAfterIndex = contextMenuStepIndex;
     hideContextMenu();
     showAssertModal();
@@ -1752,6 +2031,16 @@ stepsContainer.addEventListener('click', (e) => {
     return;
   }
 
+  // Toggle collapsed feature-flag rows
+  const flagToggle = e.target.closest('.step-flag-toggle');
+  if (flagToggle) {
+    const idx = parseInt(flagToggle.dataset.flagStepIndex, 10);
+    if (expandedFlagSteps.has(idx)) expandedFlagSteps.delete(idx);
+    else expandedFlagSteps.add(idx);
+    renderSteps();
+    return;
+  }
+
   // Click on an inline API row → open network detail modal
   const apiRow = e.target.closest('.step-api-row');
   if (apiRow) {
@@ -1759,6 +2048,13 @@ stepsContainer.addEventListener('click', (e) => {
     if (!isNaN(ni) && ni >= 0 && ni < networkSteps.length) {
       showNetworkDetail(networkSteps[ni]);
     }
+    return;
+  }
+
+  if (e.target.classList.contains('step-export-apis-btn')) {
+    e.stopPropagation();
+    const index = parseInt(e.target.dataset.index, 10);
+    if (!isNaN(index)) exportApiCallsForStep(index);
     return;
   }
 
@@ -1879,12 +2175,13 @@ btnCopyLLM.addEventListener('click', () => {
 // Load saved recording settings
 async function loadRecordingSettings() {
   try {
-    const result = await chrome.storage.local.get(['recordFocusEvents', 'captureConsoleErrors', 'captureNetworkErrors', 'captureAllLogs', 'captureNetworkRequests', 'networkUrlFilter', 'filterByDomain', 'domainFilter']);
+    const result = await chrome.storage.local.get(['recordFocusEvents', 'captureConsoleErrors', 'captureNetworkErrors', 'captureAllLogs', 'captureNetworkRequests', 'captureFeatureFlags', 'networkUrlFilter', 'filterByDomain', 'domainFilter']);
     recordFocusEvents.checked = result.recordFocusEvents || false;
     captureConsoleErrors.checked = result.captureConsoleErrors || false;
     captureNetworkErrors.checked = result.captureNetworkErrors || false;
     captureAllLogs.checked = result.captureAllLogs || false;
     captureNetworkRequests.checked = result.captureNetworkRequests || false;
+    captureFeatureFlags.checked = result.captureFeatureFlags !== false;
     networkUrlFilterInput.value = result.networkUrlFilter || '';
     filterByDomain.checked = result.filterByDomain === true;
     domainFilter.value = result.domainFilter || '';
@@ -1913,6 +2210,7 @@ async function saveRecordingSettings() {
       captureConsoleErrors: captureConsoleErrors.checked,
       captureNetworkErrors: captureNetworkErrors.checked,
       captureAllLogs: captureAllLogs.checked,
+      captureFeatureFlags: captureFeatureFlags.checked,
       filterByDomain: filterByDomain.checked,
       domainFilter: domainFilter.value.trim()
     });
@@ -1939,6 +2237,7 @@ function sendRecordingSettings() {
       captureConsole: captureConsoleErrors.checked,
       captureNetwork: captureNetworkErrors.checked,
       captureAllLogs: captureAllLogs.checked,
+      captureFeatureFlags: captureFeatureFlags.checked,
       filterByDomain: filterByDomain.checked,
       domainFilter: domainFilter.value.trim()
     }
@@ -1956,6 +2255,7 @@ captureConsoleErrors.addEventListener('change', handleRecordingSettingsChange);
 captureNetworkErrors.addEventListener('change', handleRecordingSettingsChange);
 captureAllLogs.addEventListener('change', handleRecordingSettingsChange);
 captureNetworkRequests.addEventListener('change', handleRecordingSettingsChange);
+captureFeatureFlags.addEventListener('change', handleRecordingSettingsChange);
 networkUrlFilterInput.addEventListener('change', handleRecordingSettingsChange);
 networkUrlFilterInput.addEventListener('blur', handleRecordingSettingsChange);
 filterByDomain.addEventListener('change', handleRecordingSettingsChange);

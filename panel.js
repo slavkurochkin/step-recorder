@@ -18,6 +18,8 @@ let pendingAssertType = null;
 let insertAfterIndex = null; // For inserting assertions after a specific step
 let isScreenshotMode = false;
 let pendingScreenshotRegion = null;
+let rawCaptureResolve = null; // resolver for an in-flight single viewport capture
+let isCapturingFullPage = false;
 
 const btnStart = document.getElementById('btnStart');
 const btnPause = document.getElementById('btnPause');
@@ -71,6 +73,24 @@ let port = null;
 let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 5;
 
+// Send over the DevTools port, transparently reconnecting if the background
+// service worker idled out and the port went dead (MV3). Without this, the first
+// click after an idle period (e.g. Start after Stop) silently no-ops on a dead port.
+function safePost(message) {
+  try {
+    if (!port) connectToBackground();
+    port.postMessage(message);
+  } catch (e) {
+    console.log('Panel: port send failed, reconnecting…', e && e.message);
+    try {
+      connectToBackground();
+      port.postMessage(message);
+    } catch (e2) {
+      console.log('Panel: resend after reconnect failed:', e2 && e2.message);
+    }
+  }
+}
+
 function connectToBackground() {
   try {
     port = chrome.runtime.connect({ name: 'devtools-panel' });
@@ -103,7 +123,7 @@ function connectToBackground() {
   try {
     if (chrome.devtools && chrome.devtools.inspectedWindow && typeof chrome.devtools.inspectedWindow.tabId !== 'undefined') {
       const tabId = chrome.devtools.inspectedWindow.tabId;
-      port.postMessage({ type: 'setInspectedTab', tabId: tabId });
+      safePost({ type: 'setInspectedTab', tabId: tabId });
     }
   } catch (e) {
     console.log('Panel: Could not get tab ID:', e);
@@ -130,6 +150,12 @@ function handlePortMessage(message) {
     triggerScreenshotCapture(message.region);
   } else if (message.type === 'screenshotCaptured') {
     handleScreenshotCaptured(message.dataUrl, message.region);
+  } else if (message.type === 'rawScreenshot') {
+    if (rawCaptureResolve) {
+      const resolve = rawCaptureResolve;
+      rawCaptureResolve = null;
+      resolve(message.error ? null : message.dataUrl);
+    }
   } else if (message.type === 'errorCaptured') {
     // Always store captured errors for later selection
     capturedErrors.unshift(message.step);
@@ -251,6 +277,14 @@ function flagsForStepWindow(thisTs, nextTs) {
 
 connectToBackground();
 
+// API URL filter accepts multiple comma-separated patterns; a request is captured
+// if its URL contains ANY of them (empty filter = capture everything).
+function matchesNetworkFilter(url) {
+  const terms = networkUrlFilterInput.value.split(',').map(s => s.trim()).filter(Boolean);
+  if (terms.length === 0) return true;
+  return terms.some(t => url.includes(t));
+}
+
 // DevTools Network API — reliable capture without content script patching
 if (chrome.devtools && chrome.devtools.network) {
   chrome.devtools.network.onRequestFinished.addListener((request) => {
@@ -266,8 +300,7 @@ if (chrome.devtools && chrome.devtools.network) {
     }
 
     if (!captureNetworkRequests.checked) return;
-    const filter = networkUrlFilterInput.value.trim();
-    if (filter && !url.includes(filter)) return;
+    if (!matchesNetworkFilter(url)) return;
 
     request.getContent((body, encoding) => {
       const step = {
@@ -685,7 +718,7 @@ function hideNetworkDetail() {
 function sendClearHighlights() {
   let tabId = null;
   try { tabId = chrome.devtools?.inspectedWindow?.tabId; } catch(e) {}
-  if (tabId) port.postMessage({ type: 'broadcastToContent', tabId, message: { type: 'clearHighlights' } });
+  if (tabId) safePost({ type: 'broadcastToContent', tabId, message: { type: 'clearHighlights' } });
 }
 
 // ============ Selector Picker ============
@@ -819,10 +852,10 @@ btnStart.addEventListener('click', () => {
   };
 
   console.log('Sending message via port:', message);
-  port.postMessage(message);
+  safePost(message);
 
   // Also send recording settings
-  port.postMessage({
+  safePost({
     type: 'broadcastToContent',
     tabId: tabId,
     message: {
@@ -849,7 +882,7 @@ btnPause.addEventListener('click', () => {
     }
   } catch (e) {}
   
-  port.postMessage({ 
+  safePost({ 
     type: 'broadcastToContent',
     tabId: tabId,
     message: { type: 'pauseRecording' }
@@ -868,7 +901,7 @@ btnStop.addEventListener('click', () => {
     }
   } catch (e) {}
   
-  port.postMessage({ 
+  safePost({ 
     type: 'broadcastToContent',
     tabId: tabId,
     message: { type: 'stopRecording' }
@@ -928,6 +961,13 @@ const btnSaveEndpoint = document.getElementById('btnSaveEndpoint');
 const btnSend = document.getElementById('btnSend');
 const sendStatus = document.getElementById('sendStatus');
 
+// Journey Map send is optional — only surface the button once an endpoint is configured.
+function updateSendVisibility() {
+  const hasEndpoint = !!endpointInput.value.trim();
+  btnSend.style.display = hasEndpoint ? '' : 'none';
+  sendStatus.style.display = hasEndpoint ? '' : 'none';
+}
+
 async function loadEndpoint() {
   try {
     const { journeyMapEndpoint } = await chrome.storage.local.get(['journeyMapEndpoint']);
@@ -942,6 +982,7 @@ async function loadEndpoint() {
   } catch (e) {
     console.error('Error loading endpoint:', e);
   }
+  updateSendVisibility();
 }
 
 async function saveEndpoint() {
@@ -950,10 +991,20 @@ async function saveEndpoint() {
   await chrome.storage.local.set({ journeyMapEndpoint: endpoint });
   endpointStatus.textContent = '✓ Saved';
   endpointStatus.className = 'api-key-status';
+  updateSendVisibility();
 }
 
 btnSaveEndpoint.addEventListener('click', saveEndpoint);
 loadEndpoint();
+
+// Collapsible Settings section (collapsed by default; expand to configure optional keys)
+const settingsSection = document.getElementById('settingsSection');
+const settingsToggle = document.getElementById('settingsToggle');
+if (settingsToggle) {
+  settingsToggle.addEventListener('click', () => {
+    settingsSection.classList.toggle('collapsed');
+  });
+}
 
 btnSend.addEventListener('click', async () => {
   if (steps.length === 0 && networkSteps.length === 0) {
@@ -1341,7 +1392,7 @@ function enterAssertionMode(assertType) {
     }
   } catch (e) {}
 
-  port.postMessage({
+  safePost({
     type: 'broadcastToContent',
     tabId: tabId,
     message: { type: 'enterAssertionMode' }
@@ -1363,7 +1414,7 @@ function exitAssertionMode() {
     }
   } catch (e) {}
 
-  port.postMessage({
+  safePost({
     type: 'broadcastToContent',
     tabId: tabId,
     message: { type: 'exitAssertionMode' }
@@ -1415,11 +1466,143 @@ function getInspectedTabId() {
 }
 
 function triggerScreenshotCapture(region) {
-  port.postMessage({
+  safePost({
     type: 'captureScreenshot',
     tabId: getInspectedTabId(),
     region: region || null
   });
+}
+
+const delay = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = src;
+  });
+}
+
+// Run an expression in the inspected page and resolve with its value.
+function evalInPage(expression) {
+  return new Promise((resolve, reject) => {
+    try {
+      chrome.devtools.inspectedWindow.eval(expression, (result, exc) => {
+        if (exc) reject(new Error(exc.value || exc.description || 'eval failed'));
+        else resolve(result);
+      });
+    } catch (e) {
+      reject(e);
+    }
+  });
+}
+
+// Grab one viewport via the background, returning a Promise of the dataUrl.
+function captureVisibleOnce() {
+  return new Promise((resolve) => {
+    rawCaptureResolve = resolve;
+    safePost({ type: 'captureScreenshotRaw', tabId: getInspectedTabId() });
+    setTimeout(() => {
+      if (rawCaptureResolve) { rawCaptureResolve = null; resolve(null); }
+    }, 6000);
+  });
+}
+
+// Neutralize fixed/sticky elements during capture so they don't repeat in every
+// stitched segment (fixed → absolute, sticky → static); originals restored after.
+const NEUTRALIZE_FIXED = `(function(){
+  window.__srFixedPatch = [];
+  var els = document.querySelectorAll('body *');
+  for (var i = 0; i < els.length; i++) {
+    var pos = getComputedStyle(els[i]).position;
+    if (pos === 'fixed' || pos === 'sticky') {
+      window.__srFixedPatch.push([els[i], els[i].style.position, els[i].style.getPropertyPriority('position')]);
+      els[i].style.setProperty('position', pos === 'fixed' ? 'absolute' : 'static', 'important');
+    }
+  }
+  // Hide the scrollbar so it isn't baked into the stitched image.
+  var s = document.createElement('style');
+  s.id = '__srHideScroll';
+  s.textContent = '::-webkit-scrollbar{width:0 !important;height:0 !important;display:none !important}html{scrollbar-width:none !important}';
+  (document.head || document.documentElement).appendChild(s);
+  return window.__srFixedPatch.length;
+})()`;
+
+const RESTORE_FIXED = `(function(){
+  (window.__srFixedPatch || []).forEach(function(p){
+    if (p[1]) p[0].style.setProperty('position', p[1], p[2]); else p[0].style.removeProperty('position');
+  });
+  window.__srFixedPatch = null;
+  var s = document.getElementById('__srHideScroll');
+  if (s) s.remove();
+})()`;
+
+// Full-page screenshot via scroll-and-stitch (captureVisibleTab only sees the viewport).
+async function captureFullPage() {
+  const shots = [];
+  let d;
+  try {
+    await evalInPage(NEUTRALIZE_FIXED);
+
+    d = await evalInPage(`(function(){
+      var de = document.documentElement, b = document.body;
+      return {
+        sh: Math.max(de.scrollHeight, b ? b.scrollHeight : 0, de.clientHeight),
+        ih: window.innerHeight, iw: window.innerWidth,
+        dpr: window.devicePixelRatio || 1, sx: window.scrollX, sy: window.scrollY
+      };
+    })()`);
+
+    const segments = Math.max(1, Math.ceil(d.sh / d.ih));
+    for (let i = 0; i < segments; i++) {
+      const y = await evalInPage(`(function(){ window.scrollTo(0, ${i * d.ih}); return window.scrollY; })()`);
+      await delay(350); // let the page repaint + respect captureVisibleTab rate limits
+      const dataUrl = await captureVisibleOnce();
+      if (dataUrl) shots.push({ dataUrl, y });
+    }
+  } finally {
+    // Always restore scroll + fixed/sticky positioning, even if capture failed.
+    if (d) await evalInPage(`window.scrollTo(${d.sx}, ${d.sy})`);
+    await evalInPage(RESTORE_FIXED);
+  }
+
+  if (!d || shots.length === 0) return null;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(d.iw * d.dpr);
+  canvas.height = Math.round(d.sh * d.dpr);
+  const ctx = canvas.getContext('2d');
+  for (const { dataUrl, y } of shots) {
+    const img = await loadImage(dataUrl);
+    ctx.drawImage(img, 0, Math.round(y * d.dpr));
+  }
+  return canvas.toDataURL('image/png');
+}
+
+async function runFullPageCapture() {
+  if (isCapturingFullPage) return;
+  isCapturingFullPage = true;
+  btnScreenshot.disabled = true;
+  try {
+    let dataUrl;
+    try {
+      dataUrl = await captureFullPage();
+    } catch (e) {
+      console.log('Full-page capture failed, falling back to viewport:', e && e.message);
+      dataUrl = null;
+    }
+    if (dataUrl) {
+      steps.push({ type: 'screenshot', screenshotType: 'full', timestamp: Date.now(), dataUrl, region: null });
+      renderSteps(true);
+    } else {
+      // Fallback: single visible-viewport capture through the normal path.
+      triggerScreenshotCapture(null);
+    }
+  } finally {
+    isCapturingFullPage = false;
+    btnScreenshot.disabled = false;
+  }
 }
 
 async function cropScreenshot(dataUrl, region) {
@@ -1471,7 +1654,7 @@ function enterScreenshotSelectionMode() {
   screenshotBanner.classList.add('show');
   btnScreenshot.classList.add('active');
 
-  port.postMessage({
+  safePost({
     type: 'broadcastToContent',
     tabId: getInspectedTabId(),
     message: { type: 'enterScreenshotMode' }
@@ -1483,7 +1666,7 @@ function exitScreenshotSelectionMode() {
   screenshotBanner.classList.remove('show');
   btnScreenshot.classList.remove('active');
 
-  port.postMessage({
+  safePost({
     type: 'broadcastToContent',
     tabId: getInspectedTabId(),
     message: { type: 'exitScreenshotMode' }
@@ -1494,7 +1677,7 @@ btnScreenshot.addEventListener('click', showScreenshotModal);
 
 document.getElementById('screenshotFullPage').addEventListener('click', () => {
   hideScreenshotModal();
-  triggerScreenshotCapture(null);
+  runFullPageCapture();
 });
 
 document.getElementById('screenshotPartial').addEventListener('click', () => {
@@ -1802,7 +1985,7 @@ document.getElementById('btnHighlightOnPage').addEventListener('click', () => {
   btn.textContent = '🔍 …';
   btn.disabled = true;
 
-  port.postMessage({
+  safePost({
     type: 'broadcastToContent',
     tabId,
     message: { type: 'highlightResponseData', responseBody: step.responseBody }
@@ -2211,6 +2394,8 @@ async function saveRecordingSettings() {
       captureNetworkErrors: captureNetworkErrors.checked,
       captureAllLogs: captureAllLogs.checked,
       captureFeatureFlags: captureFeatureFlags.checked,
+      captureNetworkRequests: captureNetworkRequests.checked,
+      networkUrlFilter: networkUrlFilterInput.value.trim(),
       filterByDomain: filterByDomain.checked,
       domainFilter: domainFilter.value.trim()
     });
@@ -2228,7 +2413,7 @@ function sendRecordingSettings() {
     }
   } catch (e) {}
 
-  port.postMessage({
+  safePost({
     type: 'broadcastToContent',
     tabId: tabId,
     message: {

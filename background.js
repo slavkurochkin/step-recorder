@@ -90,6 +90,14 @@ chrome.runtime.onConnect.addListener((port) => {
             devtoolsPort.postMessage({ type: 'screenshotCaptured', dataUrl, region: message.region || null });
           }
         });
+      } else if (message.type === 'captureScreenshotRaw') {
+        // Single viewport grab for the full-page scroll-and-stitch routine.
+        chrome.tabs.captureVisibleTab(null, { format: 'png' }, (dataUrl) => {
+          const err = chrome.runtime.lastError ? chrome.runtime.lastError.message : null;
+          if (devtoolsPort) {
+            devtoolsPort.postMessage({ type: 'rawScreenshot', dataUrl: dataUrl || null, error: err });
+          }
+        });
       }
     });
   } else {

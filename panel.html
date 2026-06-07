@@ -363,12 +363,31 @@
     }
 
     .settings-section {
-      padding: 6px 12px;
       background: #f9f9f9;
       border-bottom: 1px solid #e0e0e0;
+    }
+    .settings-header {
       display: flex;
       align-items: center;
-      gap: 8px;
+      justify-content: space-between;
+      padding: 6px 12px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .settings-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: #555;
+    }
+    .settings-subtle { font-weight: 400; color: #aaa; }
+    .settings-chevron { font-size: 11px; color: #888; transition: transform 0.15s; }
+    .settings-section.collapsed .settings-chevron { transform: rotate(-90deg); }
+    .settings-section.collapsed .settings-body { display: none; }
+    .settings-body {
+      padding: 4px 12px 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
     }
 
     .settings-section label {
@@ -1321,18 +1340,24 @@
 </head>
 <body>
   <div class="container">
-    <div class="settings-section">
-      <label>OpenAI API Key:</label>
-      <div class="settings-row">
-        <input type="password" id="apiKeyInput" placeholder="sk-...">
-        <button id="btnSaveKey" class="btn-save">Save</button>
-        <span id="apiKeyStatus" class="api-key-status missing">Not set</span>
+    <div class="settings-section collapsed" id="settingsSection">
+      <div class="settings-header" id="settingsToggle">
+        <span class="settings-title">⚙ Settings <span class="settings-subtle">(optional)</span></span>
+        <span class="settings-chevron">▾</span>
       </div>
-      <label style="margin-top:8px;">Journey Map Endpoint:</label>
-      <div class="settings-row">
-        <input type="text" id="endpointInput" placeholder="http://localhost:3001/api/sessions/ingest">
-        <button id="btnSaveEndpoint" class="btn-save">Save</button>
-        <span id="endpointStatus" class="api-key-status missing">Not set</span>
+      <div class="settings-body">
+        <label>OpenAI API Key:</label>
+        <div class="settings-row">
+          <input type="password" id="apiKeyInput" placeholder="sk-...">
+          <button id="btnSaveKey" class="btn-save">Save</button>
+          <span id="apiKeyStatus" class="api-key-status missing">Not set</span>
+        </div>
+        <label style="margin-top:8px;">Journey Map Endpoint:</label>
+        <div class="settings-row">
+          <input type="text" id="endpointInput" placeholder="http://localhost:3001/api/sessions/ingest">
+          <button id="btnSaveEndpoint" class="btn-save">Save</button>
+          <span id="endpointStatus" class="api-key-status missing">Not set</span>
+        </div>
       </div>
     </div>
 
@@ -1379,7 +1404,7 @@
         <input type="checkbox" id="captureNetworkRequests">
         API requests
       </label>
-      <input type="text" id="networkUrlFilter" placeholder="API URL filter (e.g. /api/)" class="network-filter-input" style="flex:1;min-width:180px;">
+      <input type="text" id="networkUrlFilter" placeholder="API URL filter — comma-separated (e.g. /api/, /graphql, /v2/users)" class="network-filter-input" style="flex:1;min-width:180px;">
     </div>
     <div class="recording-area">
       <div class="recording-panel">
@@ -1405,7 +1430,7 @@
 
     <div class="export-controls">
       <button id="btnExport" class="btn-export">Export JSON</button>
-      <button id="btnSend" class="btn-export" style="background:#4F46E5;color:#fff;">⇧ Send to Journey Map</button>
+      <button id="btnSend" class="btn-export" style="background:#4F46E5;color:#fff;display:none;">⇧ Send to Journey Map</button>
       <span id="sendStatus" style="font-size:11px;color:#888;margin-left:6px;"></span>
     </div>
 
@@ -1469,7 +1494,7 @@
       <div class="modal-options">
         <div class="modal-option" id="screenshotFullPage">
           <div class="modal-option-title">Full Page</div>
-          <div class="modal-option-desc">Capture the entire visible viewport</div>
+          <div class="modal-option-desc">Capture the entire scrollable page</div>
         </div>
         <div class="modal-option" id="screenshotPartial">
           <div class="modal-option-title">Select Area</div>

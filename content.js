@@ -133,7 +133,6 @@ window.__stepRecorderInjected = true;
 
   // Listen for messages from panel
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    console.log('Content script received message:', message, 'from:', sender);
     if (message.type === 'ping') {
       sendResponse({ status: 'ok' });
       return true;

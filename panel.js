@@ -53,6 +53,7 @@ const filterByDomain = document.getElementById('filterByDomain');
 const domainFilter = document.getElementById('domainFilter');
 const captureNetworkRequests = document.getElementById('captureNetworkRequests');
 const captureFeatureFlags = document.getElementById('captureFeatureFlags');
+const trackNavigation = document.getElementById('trackNavigation');
 const networkUrlFilterInput = document.getElementById('networkUrlFilter');
 const methodFiltersEl = document.getElementById('methodFilters');
 const networkSearchInput = document.getElementById('networkSearchInput');
@@ -436,7 +437,7 @@ function generateStepText(step) {
   } else if (step.type === 'navigate') {
     return `Navigate to ${step.url || 'page'}`;
   } else if (step.type === 'pageload') {
-    return `Page loaded: ${step.text || step.url || 'Unknown'}`;
+    return `Page loaded: ${step.url || step.text || 'Unknown'}`;
   } else if (step.type === 'screenshot') {
     return step.screenshotType === 'partial' ? 'Screenshot (partial)' : 'Screenshot (full page)';
   } else if (step.type === 'assert') {
@@ -865,6 +866,7 @@ btnStart.addEventListener('click', () => {
       captureNetwork: captureNetworkErrors.checked,
       captureAllLogs: captureAllLogs.checked,
       captureFeatureFlags: captureFeatureFlags.checked,
+      trackNavigation: trackNavigation.checked,
       filterByDomain: filterByDomain.checked,
       domainFilter: domainFilter.value.trim()
     }
@@ -1126,9 +1128,9 @@ async function generateWithLLM() {
         desc = `${index + 1}. **${errorLabel}**: ${step.message || 'Unknown error'}`;
         if (step.url) desc += ` (URL: ${step.url})`;
       } else if (step.type === 'navigate') {
-        desc += `: Browser back/forward to "${step.url || 'previous page'}"`;
+        desc += `: Navigate to URL ${step.url || 'previous page'}`;
       } else if (step.type === 'pageload') {
-        desc += `: Redirected to "${step.text || step.url || 'new page'}"`;
+        desc += `: Page loaded at URL ${step.url || step.text || 'new page'}`;
       } else if (step.type === 'assert') {
         const assertDesc = { exists: 'exists', visible: 'is visible', textContains: 'text exists' };
         desc += `: "${elementName}" ${elementType} ${assertDesc[step.assertType] || 'exists'}`;
@@ -1349,6 +1351,7 @@ ${stepsDescription}
 
 Rules:
 - Use modern Playwright syntax (async/await)
+- For "Page loaded"/"Navigate" steps, call page.goto() with the EXACT URL shown — never invent or use placeholder URLs
 - Use appropriate locators (getByRole, getByText, locator)
 - Include assertions for any errors or verification steps
 - Wrap in test() function
@@ -2358,13 +2361,14 @@ btnCopyLLM.addEventListener('click', () => {
 // Load saved recording settings
 async function loadRecordingSettings() {
   try {
-    const result = await chrome.storage.local.get(['recordFocusEvents', 'captureConsoleErrors', 'captureNetworkErrors', 'captureAllLogs', 'captureNetworkRequests', 'captureFeatureFlags', 'networkUrlFilter', 'filterByDomain', 'domainFilter']);
+    const result = await chrome.storage.local.get(['recordFocusEvents', 'captureConsoleErrors', 'captureNetworkErrors', 'captureAllLogs', 'captureNetworkRequests', 'captureFeatureFlags', 'trackNavigation', 'networkUrlFilter', 'filterByDomain', 'domainFilter']);
     recordFocusEvents.checked = result.recordFocusEvents || false;
     captureConsoleErrors.checked = result.captureConsoleErrors || false;
     captureNetworkErrors.checked = result.captureNetworkErrors || false;
     captureAllLogs.checked = result.captureAllLogs || false;
     captureNetworkRequests.checked = result.captureNetworkRequests || false;
     captureFeatureFlags.checked = result.captureFeatureFlags !== false;
+    trackNavigation.checked = result.trackNavigation !== false;
     networkUrlFilterInput.value = result.networkUrlFilter || '';
     filterByDomain.checked = result.filterByDomain === true;
     domainFilter.value = result.domainFilter || '';
@@ -2394,6 +2398,7 @@ async function saveRecordingSettings() {
       captureNetworkErrors: captureNetworkErrors.checked,
       captureAllLogs: captureAllLogs.checked,
       captureFeatureFlags: captureFeatureFlags.checked,
+      trackNavigation: trackNavigation.checked,
       captureNetworkRequests: captureNetworkRequests.checked,
       networkUrlFilter: networkUrlFilterInput.value.trim(),
       filterByDomain: filterByDomain.checked,
@@ -2423,6 +2428,7 @@ function sendRecordingSettings() {
       captureNetwork: captureNetworkErrors.checked,
       captureAllLogs: captureAllLogs.checked,
       captureFeatureFlags: captureFeatureFlags.checked,
+      trackNavigation: trackNavigation.checked,
       filterByDomain: filterByDomain.checked,
       domainFilter: domainFilter.value.trim()
     }
@@ -2441,6 +2447,7 @@ captureNetworkErrors.addEventListener('change', handleRecordingSettingsChange);
 captureAllLogs.addEventListener('change', handleRecordingSettingsChange);
 captureNetworkRequests.addEventListener('change', handleRecordingSettingsChange);
 captureFeatureFlags.addEventListener('change', handleRecordingSettingsChange);
+trackNavigation.addEventListener('change', handleRecordingSettingsChange);
 networkUrlFilterInput.addEventListener('change', handleRecordingSettingsChange);
 networkUrlFilterInput.addEventListener('blur', handleRecordingSettingsChange);
 filterByDomain.addEventListener('change', handleRecordingSettingsChange);

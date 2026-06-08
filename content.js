@@ -16,6 +16,7 @@ window.__stepRecorderInjected = true;
   let domainFilterPattern = '';
   let recordingJustStarted = false;
   let captureFeatureFlags = true;
+  let trackNavigation = true;
 
   // Use window-level deduplication to handle any edge cases
   if (!window.__stepRecorderDedup) {
@@ -32,6 +33,17 @@ window.__stepRecorderInjected = true;
     } catch {
       return false;
     }
+  }
+
+  // Window-level dedup so a navigation/pageload to the same URL isn't recorded
+  // multiple times when several content-script instances/listeners coexist
+  // (re-injection across reloads) or different code paths fire close together.
+  function navAlreadyRecorded(url) {
+    const now = Date.now();
+    const last = window.__stepRecorderLastNav;
+    if (last && last.url === url && now - last.t < 800) return true;
+    window.__stepRecorderLastNav = { url: url, t: now };
+    return false;
   }
 
   // Check if recording was active (e.g., after page navigation)
@@ -51,8 +63,7 @@ window.__stepRecorderInjected = true;
         }
 
         // Record page load/redirect if this is a new page (guard prevents duplicates across multiple injections)
-        if (isNewPageLoad && !window.__stepRecorderPageloadSent) {
-          window.__stepRecorderPageloadSent = true;
+        if (isNewPageLoad && trackNavigation && !navAlreadyRecorded(window.location.href)) {
           chrome.runtime.sendMessage({
             type: 'stepRecorded',
             step: {
@@ -73,7 +84,7 @@ window.__stepRecorderInjected = true;
   checkAndResumeRecording(true);
 
   // Load recording settings from storage
-  chrome.storage.local.get(['recordFocusEvents', 'captureConsoleErrors', 'captureNetworkErrors', 'captureAllLogs', 'filterByDomain', 'domainFilter', 'captureFeatureFlags'], (result) => {
+  chrome.storage.local.get(['recordFocusEvents', 'captureConsoleErrors', 'captureNetworkErrors', 'captureAllLogs', 'filterByDomain', 'domainFilter', 'captureFeatureFlags', 'trackNavigation'], (result) => {
     if (chrome.runtime.lastError) return;
     recordFocusEvents = result.recordFocusEvents || false;
     captureConsoleErrors = result.captureConsoleErrors || false;
@@ -82,35 +93,29 @@ window.__stepRecorderInjected = true;
     filterByDomain = result.filterByDomain === true;
     domainFilterPattern = result.domainFilter || '';
     captureFeatureFlags = result.captureFeatureFlags !== false;
+    trackNavigation = result.trackNavigation !== false;
   });
 
-  // Track last navigation to prevent duplicates
-  let lastNavUrl = null;
-  let lastNavTime = 0;
 
-  function recordNavigation() {
-    if (!isExtensionValid()) return;
+  function recordNavigation(label) {
+    if (!isExtensionValid() || !trackNavigation) return;
 
     const now = Date.now();
     const url = window.location.href;
 
-    // Prevent duplicate navigation events within 500ms
-    if (url === lastNavUrl && now - lastNavTime < 500) return;
+    if (navAlreadyRecorded(url)) return;
 
     chrome.runtime.sendMessage({ type: 'getRecordingState' }, (response) => {
       if (chrome.runtime.lastError || !response?.isRecording) return;
 
-      lastNavUrl = url;
-      lastNavTime = now;
-
       chrome.runtime.sendMessage({
         type: 'stepRecorded',
         step: {
-          type: 'navigate',
+          type: 'pageload',
           timestamp: now,
           tagName: 'browser',
           selector: '',
-          text: 'Browser back/forward',
+          text: document.title || url,
           url: url
         }
       }).catch(() => {});
@@ -120,16 +125,29 @@ window.__stepRecorderInjected = true;
   // Handle bfcache (back/forward button) - pageshow fires when page is restored
   window.addEventListener('pageshow', (event) => {
     if (event.persisted) {
-      console.log('Page restored from bfcache');
       checkAndResumeRecording();
-      recordNavigation();
+      recordNavigation('Browser back/forward');
     }
   });
 
   // Record browser back/forward navigation
   window.addEventListener('popstate', () => {
-    recordNavigation();
+    recordNavigation('Browser back/forward');
   });
+
+  // SPA route changes (history.pushState/replaceState fire no events) — poll the URL.
+  // Captures client-side navigation regardless of router, without MAIN-world patching.
+  if (!window.__stepRecorderNavWatcher) {
+    window.__stepRecorderNavWatcher = true;
+    let lastWatchedUrl = window.location.href;
+    setInterval(() => {
+      if (!isRecording || isPaused || !trackNavigation) return;
+      if (window.location.href !== lastWatchedUrl) {
+        lastWatchedUrl = window.location.href;
+        recordNavigation();
+      }
+    }, 400);
+  }
 
   // Listen for messages from panel
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -145,7 +163,20 @@ window.__stepRecorderInjected = true;
         attachEventListeners();
         eventListenersAttached = true;
       }
-      console.log('Recording started, isRecording:', isRecording);
+      // Record the starting page so the exported flow has an entry point.
+      if (trackNavigation && !navAlreadyRecorded(window.location.href)) {
+        chrome.runtime.sendMessage({
+          type: 'stepRecorded',
+          step: {
+            type: 'pageload',
+            timestamp: Date.now(),
+            tagName: 'browser',
+            selector: '',
+            text: document.title || 'Page loaded',
+            url: window.location.href
+          }
+        }).catch(() => {});
+      }
       sendResponse({ status: 'started' });
     } else if (message.type === 'pauseRecording') {
       isPaused = true;
@@ -177,6 +208,9 @@ window.__stepRecorderInjected = true;
       domainFilterPattern = message.domainFilter || '';
       if (typeof message.captureFeatureFlags !== 'undefined') {
         captureFeatureFlags = message.captureFeatureFlags;
+      }
+      if (typeof message.trackNavigation !== 'undefined') {
+        trackNavigation = message.trackNavigation;
       }
       sendResponse({ status: 'ok' });
     } else if (message.type === 'highlightResponseData') {
@@ -529,9 +563,72 @@ function getSelector(element) {
   return path.join(' > ');
 }
 
+// Robust XPath: anchor on the nearest ancestor id, else absolute tag[index] path.
+function getXPath(element) {
+  if (element.id) return `//*[@id="${element.id}"]`;
+  const parts = [];
+  let el = element;
+  while (el && el.nodeType === Node.ELEMENT_NODE) {
+    if (el.id) { parts.unshift(`*[@id="${el.id}"]`); return '//' + parts.join('/'); }
+    let idx = 1;
+    for (let sib = el.previousElementSibling; sib; sib = sib.previousElementSibling) {
+      if (sib.tagName === el.tagName) idx++;
+    }
+    parts.unshift(`${el.tagName.toLowerCase()}[${idx}]`);
+    el = el.parentElement;
+  }
+  return '/' + parts.join('/');
+}
+
+// Accessible name approximation (for getByRole/getByText).
+function accessibleName(element) {
+  const aria = element.getAttribute('aria-label');
+  if (aria) return aria.trim();
+  const text = (element.textContent || '').trim().replace(/\s+/g, ' ');
+  if (text && text.length <= 60) return text;
+  return (element.getAttribute('alt') || element.getAttribute('placeholder') || element.getAttribute('title') || '').trim();
+}
+
+// Implicit ARIA role from tag/type when no explicit role attribute is set.
+function implicitRole(element) {
+  const explicit = element.getAttribute('role');
+  if (explicit) return explicit;
+  const tag = element.tagName.toLowerCase();
+  if (tag === 'a') return element.hasAttribute('href') ? 'link' : null;
+  if (tag === 'input') {
+    const type = (element.getAttribute('type') || 'text').toLowerCase();
+    return { checkbox: 'checkbox', radio: 'radio', button: 'button', submit: 'button',
+             reset: 'button', range: 'slider', search: 'searchbox', number: 'spinbutton' }[type] || 'textbox';
+  }
+  return { button: 'button', select: 'combobox', textarea: 'textbox', img: 'img', nav: 'navigation',
+           ul: 'list', ol: 'list', li: 'listitem', table: 'table', form: 'form',
+           h1: 'heading', h2: 'heading', h3: 'heading', h4: 'heading', h5: 'heading', h6: 'heading' }[tag] || null;
+}
+
+// Associated <label> text for a form control (for getByLabel).
+function labelText(element) {
+  const labelledby = element.getAttribute('aria-labelledby');
+  if (labelledby) {
+    const txt = labelledby.split(/\s+/)
+      .map(id => { const e = document.getElementById(id); return e ? e.textContent.trim() : ''; })
+      .filter(Boolean).join(' ');
+    if (txt) return txt.replace(/\s+/g, ' ');
+  }
+  if (element.id) {
+    try {
+      const forLbl = document.querySelector(`label[for="${CSS.escape(element.id)}"]`);
+      if (forLbl) return forLbl.textContent.trim().replace(/\s+/g, ' ');
+    } catch (_) {}
+  }
+  const wrap = element.closest('label');
+  if (wrap) return wrap.textContent.trim().replace(/\s+/g, ' ');
+  return '';
+}
+
 function getSelectorAlternatives(element) {
   const alts = [];
   const tag = element.tagName.toLowerCase();
+  const esc = (s) => s.replace(/'/g, "\\'");
 
   if (element.id)
     alts.push({ label: 'id', selector: `#${element.id}` });
@@ -553,6 +650,48 @@ function getSelectorAlternatives(element) {
   const role = element.getAttribute('role');
   if (role) alts.push({ label: 'role', selector: `[role="${role}"]` });
 
+  // Role-based (Playwright / Testing Library style) — always derivable.
+  const impRole = implicitRole(element);
+  const accName = accessibleName(element);
+  if (impRole) {
+    alts.push({
+      label: 'getByRole',
+      selector: accName ? `getByRole('${impRole}', { name: '${esc(accName)}' })` : `getByRole('${impRole}')`
+    });
+  }
+
+  // Text-based — handy for buttons, links, labels.
+  if (accName && accName.length <= 60)
+    alts.push({ label: 'getByText', selector: `getByText('${esc(accName)}')` });
+
+  // getByLabel — form controls associated with a <label>.
+  if (/^(input|select|textarea)$/.test(tag) || element.isContentEditable) {
+    const lbl = labelText(element);
+    if (lbl && lbl.length <= 60)
+      alts.push({ label: 'getByLabel', selector: `getByLabel('${esc(lbl)}')` });
+  }
+
+  // Playwright/TL attribute variants of attributes we already detect.
+  const ph = element.getAttribute('placeholder');
+  if (ph) alts.push({ label: 'getByPlaceholder', selector: `getByPlaceholder('${esc(ph)}')` });
+  const testId = element.getAttribute('data-testid') || element.getAttribute('data-test-id');
+  if (testId) alts.push({ label: 'getByTestId', selector: `getByTestId('${esc(testId)}')` });
+  const altText = element.getAttribute('alt');
+  if (altText) alts.push({ label: 'getByAltText', selector: `getByAltText('${esc(altText)}')` });
+
+  // Framework-agnostic text XPath — only when the element has its own text.
+  const visText = (element.textContent || '').trim().replace(/\s+/g, ' ');
+  if (visText && visText.length <= 60) {
+    const q = visText.includes('"') ? `'${visText}'` : `"${visText}"`;
+    alts.push({ label: 'text xpath', selector: `//${tag}[normalize-space()=${q}]` });
+  }
+
+  // Attribute selectors for common targeted elements.
+  if (tag === 'a' && element.getAttribute('href'))
+    alts.push({ label: 'href', selector: `a[href="${element.getAttribute('href')}"]` });
+  if (tag === 'input' && element.getAttribute('type'))
+    alts.push({ label: 'type', selector: `input[type="${element.getAttribute('type')}"]` });
+
   if (element.className && typeof element.className === 'string') {
     const classes = element.className.trim().split(/\s+/).filter(c => c && c.length < 40 && !c.includes(':'));
     if (classes.length > 0 && classes.length <= 4)
@@ -562,6 +701,9 @@ function getSelectorAlternatives(element) {
   const cssPath = getSelector(element);
   if (cssPath && !alts.some(a => a.selector === cssPath))
     alts.push({ label: 'css path', selector: cssPath });
+
+  // XPath — always available as a last-resort, fully-qualified locator.
+  alts.push({ label: 'xpath', selector: getXPath(element) });
 
   return alts;
 }
